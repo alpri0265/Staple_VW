@@ -2,20 +2,24 @@
 #define __CONFIG_H
 
 /* ===== Механічні константи ===== */
+// Двигун: 86HBP113AL4 (NEMA34, 8.5 Нм, 200 кроків/оберт)
+// Редуктор: PX86 планетарний 1:10
+// Гвинт: T20×4 (крок 4 мм/оберт)
+// Драйвер: DM556, мікрокрок 1/8 (1600 кроків/оберт)
 #define SCREW_PITCH_MM      4.0f    // крок гвинта T20x4
-#define GEAR_RATIO          20.0f   // передавальне число редуктора
-#define MICROSTEP           8       // мікрокрок драйвера
+#define GEAR_RATIO          10.0f   // PX86 планетарний редуктор 1:10
+#define MICROSTEP           8       // мікрокрок DM556 (SW5=ON SW6=OFF SW7=ON SW8=ON)
 #define MOTOR_STEPS_REV     200     // кроків/оберт (1.8°)
 
-// Кроків на 1 мм = (200 * 8 * 20) / 4 = 8000
-#define STEPS_PER_MM        8000.0f
+// Кроків на 1 мм = (200 * 8 * 10) / 4 = 4000
+#define STEPS_PER_MM        4000.0f
 
 /* ===== Швидкості (кроків/с) =====
  * TIM7 = 1ms → period = 1000/speed → min period = 1ms → max 500 full steps/s
  * Реальна швидкість: speed_actual = 1000 / (2 * period_ms) full steps/s
- *   SPEED_FAST: period=1ms → 500 steps/s → 0.0625 mm/s ≈ 3.75 mm/min
- *   SPEED_SLOW: period=2ms → 250 steps/s → 0.031  mm/s ≈ 1.9  mm/min
- *   SPEED_ENC:  period=5ms → 100 steps/s → 0.0125 mm/s ≈ 0.75 mm/min
+ *   SPEED_FAST: period=1ms → 500 steps/s → 0.125 mm/s ≈ 7.5 mm/min
+ *   SPEED_SLOW: period=2ms → 250 steps/s → 0.063 mm/s ≈ 3.75 mm/min
+ *   SPEED_ENC:  period=5ms → 100 steps/s → 0.025 mm/s ≈ 1.5 mm/min
  */
 #define SPEED_FAST          1000    // джойстик, грубий рух (period=1ms)
 #define SPEED_SLOW          400     // при наближенні до цілі — 80% зусилля (period=2ms)
@@ -23,7 +27,8 @@
 #define ACCEL_STEPS         2000    // кроків/с² (не використовується напряму, залишено для документації)
 
 /* ===== Зусилля ===== */
-#define FORCE_MAX_KG        50.0f
+// Датчик: LCF-6-V 2T (2000 кг), практичне обмеження для НФ
+#define FORCE_MAX_KG        500.0f
 #define FORCE_DEFAULT_KG    15.0f
 #define FORCE_STEP_KG       0.1f    // крок енкодера
 #define SLOWDOWN_THRESHOLD  0.80f   // 80% → перехід на SPEED_SLOW
