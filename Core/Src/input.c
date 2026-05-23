@@ -82,11 +82,17 @@ bool input_joy_down(void)
 
 bool input_enc_sw_pressed(void)
 {
-    // Одноразове спрацювання: лише на передній фронт (не натиснуто → натиснуто)
-    if (s_enc_sw.state && !s_enc_sw.prev) {
-        return true;
-    }
-    return false;
+    return (s_enc_sw.state && !s_enc_sw.prev);
+}
+
+bool input_enc_sw_held(void)
+{
+    return s_enc_sw.state;
+}
+
+bool input_enc_sw_released(void)
+{
+    return (!s_enc_sw.state && s_enc_sw.prev);
 }
 
 int8_t input_enc_get_delta(void)

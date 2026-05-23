@@ -115,6 +115,43 @@ void motor_move_down(uint16_t speed)
     __enable_irq();
 }
 
+void motor_nudge_up(uint16_t speed)
+{
+    if (s_state == MOTOR_ERROR) return;
+    if (motor_is_limit_top()) return;
+
+    set_direction(true);
+    uint16_t period = speed_to_period(speed);
+
+    __disable_irq();
+    s_period_target  = period;
+    s_period_current = period;
+    s_step_period    = period;
+    // Не скидаємо s_step_timer якщо вже рухаємось вгору — уникаємо стрибка
+    if (s_state != MOTOR_MOVING_UP) s_step_timer = period;
+    s_accel_timer    = 0;
+    s_state          = MOTOR_MOVING_UP;
+    __enable_irq();
+}
+
+void motor_nudge_down(uint16_t speed)
+{
+    if (s_state == MOTOR_ERROR) return;
+    if (motor_is_limit_bot()) return;
+
+    set_direction(false);
+    uint16_t period = speed_to_period(speed);
+
+    __disable_irq();
+    s_period_target  = period;
+    s_period_current = period;
+    s_step_period    = period;
+    if (s_state != MOTOR_MOVING_DOWN) s_step_timer = period;
+    s_accel_timer    = 0;
+    s_state          = MOTOR_MOVING_DOWN;
+    __enable_irq();
+}
+
 void motor_stop(void)
 {
     __disable_irq();

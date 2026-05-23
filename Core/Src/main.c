@@ -52,6 +52,8 @@
 /* USER CODE BEGIN PV */
 static float    s_target_kg    = FORCE_DEFAULT_KG;
 static uint32_t s_display_tick = 0;
+static bool     s_fine_used    = false;  // ENC hold використовувався для руху мотора
+static uint32_t s_fine_tick    = 0;      // час останнього тіку енкодера у fine mode
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -142,12 +144,11 @@ int main(void)
     if (input_stop_pressed()) {
       input_stop_clear();
       if (cur_screen == SCREEN_ERROR) {
-        // Повторне натискання СТОП на екрані помилки — підтвердження, повертаємось до роботи
         motor_clear_error();
         display_set_screen(SCREEN_MAIN);
         cur_screen = SCREEN_MAIN;
       } else {
-        // Перше натискання — показати помилку, заблокувати рух до підтвердження
+        s_fine_used = false;  // скидаємо fine mode при аварійній зупинці
         display_show_error("STOP: press again");
         cur_screen = SCREEN_ERROR;
       }
@@ -172,9 +173,10 @@ int main(void)
         }
       }
 
-      // Джойстик керує двигуном
+      // Джойстик керує двигуном (пріоритет над ENC fine mode)
       bool joy_up   = input_joy_up();
       bool joy_down = input_joy_down();
+      bool enc_held = input_enc_sw_held();
 
       if (joy_up && !motor_is_limit_top()) {
         uint16_t spd = (force >= s_target_kg * SLOWDOWN_THRESHOLD) ? SPEED_SLOW : SPEED_FAST;
@@ -182,20 +184,40 @@ int main(void)
       } else if (joy_down && !motor_is_limit_bot()) {
         uint16_t spd = (force >= s_target_kg * SLOWDOWN_THRESHOLD) ? SPEED_SLOW : SPEED_FAST;
         motor_move_down(spd);
-      } else if (!joy_up && !joy_down && motor_is_running()) {
+      } else if (!joy_up && !joy_down && !enc_held && motor_is_running()) {
         motor_stop();
       }
 
-      // Енкодер змінює задане зусилля
-      if (enc_delta != 0) {
+      // Тонка підстройка: ENC утримано + обертання → рух мотора без розгону
+      if (enc_held && !joy_up && !joy_down) {
+        if (enc_delta > 0 && !motor_is_limit_top()) {
+          motor_nudge_up(SPEED_ENC);
+          s_fine_tick = HAL_GetTick();
+          s_fine_used = true;
+        } else if (enc_delta < 0 && !motor_is_limit_bot()) {
+          motor_nudge_down(SPEED_ENC);
+          s_fine_tick = HAL_GetTick();
+          s_fine_used = true;
+        } else if (s_fine_used && (HAL_GetTick() - s_fine_tick) >= FINE_TIMEOUT_MS) {
+          motor_stop();
+        }
+      }
+
+      // ENC відпущено: якщо fine mode не використовувався → меню
+      if (input_enc_sw_released()) {
+        if (s_fine_used) {
+          motor_stop();
+        } else {
+          display_set_screen(SCREEN_MENU);
+        }
+        s_fine_used = false;
+      }
+
+      // Енкодер змінює задане зусилля тільки якщо ENC не утримано
+      if (!enc_held && enc_delta != 0) {
         s_target_kg += (float)enc_delta * FORCE_STEP_KG;
         if (s_target_kg < FORCE_STEP_KG)  s_target_kg = FORCE_STEP_KG;
         if (s_target_kg > FORCE_MAX_KG)   s_target_kg = FORCE_MAX_KG;
-      }
-
-      // Кнопка енкодера → меню
-      if (input_enc_sw_pressed()) {
-        display_set_screen(SCREEN_MENU);
       }
 
       // Оновити дисплей з обмеженням ~10 Гц
