@@ -30,6 +30,7 @@
 #include "input.h"
 #include "display.h"
 #include "calibration.h"
+#include "preset.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,6 +52,7 @@
 
 /* USER CODE BEGIN PV */
 static float    s_target_kg    = FORCE_DEFAULT_KG;
+static int8_t   s_preset_idx   = -1;     // активний пресет (-1 = не вибрано)
 static uint32_t s_display_tick = 0;
 static bool     s_fine_used    = false;  // ENC hold використовувався для руху мотора
 static uint32_t s_fine_tick    = 0;      // час останнього тіку енкодера у fine mode
@@ -220,10 +222,10 @@ int main(void)
         if (s_target_kg > FORCE_MAX_KG)   s_target_kg = FORCE_MAX_KG;
       }
 
-      // Оновити дисплей з обмеженням ~10 Гц
+      // Оновити дисплей ~10 Гц, передаємо значення в кН
       if ((HAL_GetTick() - s_display_tick) >= 100U) {
         s_display_tick = HAL_GetTick();
-        display_set_force(force, s_target_kg);
+        display_set_force(loadcell_get_kN(), s_target_kg / KN_TO_KG);
       }
 
     } else if (cur_screen == SCREEN_MENU) {
@@ -235,11 +237,26 @@ int main(void)
         uint8_t item = display_menu_get_item();
         switch (item) {
           case 0: display_set_screen(SCREEN_MAIN); break;
-          case 1: calib_start(s_target_kg); break;
-          case 2: display_set_screen(SCREEN_SETTINGS); break;
-          case 3: motor_reset_position(); display_set_screen(SCREEN_MAIN); break;
+          case 1: display_set_screen(SCREEN_PRESET); break;
+          case 2: calib_start(s_target_kg); break;
+          case 3: display_set_screen(SCREEN_SETTINGS); break;
+          case 4: motor_reset_position(); display_set_screen(SCREEN_MAIN); break;
           default: break;
         }
+      }
+
+    } else if (cur_screen == SCREEN_PRESET) {
+
+      // Навігація енкодером
+      if (enc_delta != 0) display_preset_scroll(enc_delta);
+
+      // Вибір пресету — встановлює ціль і повертається до роботи
+      if (input_enc_sw_pressed()) {
+        uint8_t idx = display_preset_get_item();
+        s_target_kg  = preset_target_kg(idx);
+        s_preset_idx = (int8_t)idx;
+        display_set_active_preset(s_preset_idx);
+        display_set_screen(SCREEN_MAIN);
       }
 
     } else if (cur_screen == SCREEN_CALIBRATION) {

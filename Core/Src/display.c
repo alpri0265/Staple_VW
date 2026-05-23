@@ -2,6 +2,7 @@
 #include "main.h"
 #include "i2c.h"
 #include "config.h"
+#include "preset.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -23,11 +24,13 @@ static const uint8_t ROW_ADDR[4] = { 0x00, 0x40, 0x14, 0x54 };
 
 // ===== Стан дисплея =====
 
-static DisplayScreen  s_screen    = SCREEN_MAIN;
-static float          s_force     = 0.0f;
-static float          s_target    = FORCE_DEFAULT_KG;
-static bool           s_dirty     = true;
-static uint8_t        s_menu_item = 0;
+static DisplayScreen  s_screen        = SCREEN_MAIN;
+static float          s_force         = 0.0f;   // кН
+static float          s_target        = FORCE_DEFAULT_KN;  // кН
+static bool           s_dirty         = true;
+static uint8_t        s_menu_item     = 0;
+static uint8_t        s_preset_item   = 0;  // поточна позиція у списку пресетів
+static int8_t         s_active_preset = -1; // обраний пресет (-1 = немає)
 
 // Буфер кожного рядка для порівняння (щоб не надсилати незмінені)
 static char s_lcd_buf[LCD_ROWS][LCD_COLS + 1];
@@ -92,7 +95,7 @@ static void lcd_hw_init(void)
     lcd_nibble(0x30, 0); HAL_Delay(2);
     lcd_nibble(0x20, 0); HAL_Delay(2);
 
-    lcd_cmd(0x28); HAL_Delay(1);  // Function Set: 4-bit, 2 lines, 5×8 dots
+    lcd_cmd(0x28); HAL_Delay(1);  // Function Set: 4-bit, 2 lines, 5x8 dots
     lcd_cmd(0x0C); HAL_Delay(1);  // Display ON, cursor OFF, blink OFF
     lcd_cmd(0x01); HAL_Delay(2);  // Clear display
     lcd_cmd(0x06); HAL_Delay(1);  // Entry Mode: increment, no shift
@@ -105,32 +108,55 @@ static void make_line_padded(char *dst, const char *src)
     int len = (int)strlen(src);
     if (len > LCD_COLS) len = LCD_COLS;
     memcpy(dst, src, len);
-    // Доповнити пробілами до 20 символів
     for (int i = len; i < LCD_COLS; i++) dst[i] = ' ';
     dst[LCD_COLS] = '\0';
+}
+
+// Форматує діапазон зусилля в кН у 7-символьний рядок
+// 8.5-9.0 → "8.5-9.0"  |  15-16 → "15-16  " (padded)
+static void format_range_kN(char *buf, float fmin, float fmax)
+{
+    if (fmin >= 10.0f) {
+        snprintf(buf, 8, "%.0f-%.0f", (double)fmin, (double)fmax);
+    } else {
+        snprintf(buf, 8, "%.1f-%.1f", (double)fmin, (double)fmax);
+    }
 }
 
 static void build_screen_main(void)
 {
     char tmp[LCD_COLS + 1];
 
-    make_line_padded(s_new_buf[0], "VW NF PRESS");
+    // Рядок 0: активний пресет або назва пристрою
+    if (s_active_preset >= 0 && s_active_preset < PRESET_COUNT) {
+        const Preset_t *p = &g_presets[s_active_preset];
+        char rng[8];
+        format_range_kN(rng, p->force_min_kN, p->force_max_kN);
+        // "300 Nozzle  8.5-9.0"  = 3+1+8+7 = 19 chars → padded to 20
+        snprintf(tmp, sizeof(tmp), "%-3s %-8s%s", p->inj_name, p->op_name, rng);
+    } else {
+        snprintf(tmp, sizeof(tmp), "VW NF PRESS");
+    }
+    make_line_padded(s_new_buf[0], tmp);
 
-    snprintf(tmp, sizeof(tmp), "Force: %6.1f kg", (double)s_force);
+    // Рядок 1: поточне зусилля в кН
+    snprintf(tmp, sizeof(tmp), "Force: %7.2f kN", (double)s_force);
     make_line_padded(s_new_buf[1], tmp);
 
-    snprintf(tmp, sizeof(tmp), "Target:%6.1f kg", (double)s_target);
+    // Рядок 2: задане зусилля в кН
+    snprintf(tmp, sizeof(tmp), "Target:%7.2f kN", (double)s_target);
     make_line_padded(s_new_buf[2], tmp);
 
     make_line_padded(s_new_buf[3], "[^v] ENC    STOP");
 }
 
-#define MENU_ITEMS 4
+#define MENU_ITEMS 5
 static const char *MENU_LABELS[MENU_ITEMS] = {
     "1.Work mode",
-    "2.Calibration",
-    "3.Settings",
-    "4.Home (zero)"
+    "2.Presets",
+    "3.Calibration",
+    "4.Settings",
+    "5.Home (zero)"
 };
 
 static void build_screen_menu(void)
@@ -138,7 +164,7 @@ static void build_screen_menu(void)
     make_line_padded(s_new_buf[0], "=== MENU ===");
 
     for (int i = 0; i < 3; i++) {
-        uint8_t item = (s_menu_item <= 1) ? i : (s_menu_item - 1 + i);
+        uint8_t item = (s_menu_item <= 1) ? (uint8_t)i : (uint8_t)(s_menu_item - 1 + i);
         if (item >= MENU_ITEMS) {
             make_line_padded(s_new_buf[i + 1], "");
         } else {
@@ -148,6 +174,37 @@ static void build_screen_menu(void)
                      MENU_LABELS[item]);
             make_line_padded(s_new_buf[i + 1], tmp);
         }
+    }
+}
+
+static void build_screen_preset(void)
+{
+    make_line_padded(s_new_buf[0], "=== PRESET ===");
+
+    // Вікно прокрутки: показуємо 3 пункти, обраний завжди видимий
+    uint8_t start = 0;
+    if (s_preset_item > 1) {
+        start = s_preset_item - 1;
+        if (start + 3 > PRESET_COUNT) {
+            start = (PRESET_COUNT > 3) ? (PRESET_COUNT - 3) : 0;
+        }
+    }
+
+    for (int i = 0; i < 3; i++) {
+        uint8_t idx = start + (uint8_t)i;
+        if (idx >= PRESET_COUNT) {
+            make_line_padded(s_new_buf[i + 1], "");
+            continue;
+        }
+        const Preset_t *p = &g_presets[idx];
+        char rng[8];
+        format_range_kN(rng, p->force_min_kN, p->force_max_kN);
+        char tmp[LCD_COLS + 1];
+        // ">[300] [Nozzle  ][8.5-9.0]"  = 1+3+1+8+7 = 20 chars
+        snprintf(tmp, sizeof(tmp), "%c%-3s %-8s%s",
+                 (idx == s_preset_item) ? '>' : ' ',
+                 p->inj_name, p->op_name, rng);
+        make_line_padded(s_new_buf[i + 1], tmp);
     }
 }
 
@@ -190,10 +247,10 @@ static void flush_screen(void)
 
 void display_init(void)
 {
-    memset(s_lcd_buf,    0, sizeof(s_lcd_buf));
-    memset(s_new_buf,    0, sizeof(s_new_buf));
+    memset(s_lcd_buf,     0, sizeof(s_lcd_buf));
+    memset(s_new_buf,     0, sizeof(s_new_buf));
     memset(s_calib_lines, 0, sizeof(s_calib_lines));
-    memset(s_error_msg, 0, sizeof(s_error_msg));
+    memset(s_error_msg,   0, sizeof(s_error_msg));
 
     lcd_hw_init();
     s_dirty = true;
@@ -207,6 +264,7 @@ void display_update(void)
     switch (s_screen) {
         case SCREEN_MAIN:         build_screen_main();     break;
         case SCREEN_MENU:         build_screen_menu();     break;
+        case SCREEN_PRESET:       build_screen_preset();   break;
         case SCREEN_CALIBRATION:  build_screen_calib();    break;
         case SCREEN_SETTINGS:     build_screen_settings(); break;
         case SCREEN_ERROR:        build_screen_error();    break;
@@ -225,17 +283,16 @@ void display_set_screen(DisplayScreen s)
 {
     if (s_screen != s) {
         s_screen = s;
-        // Примусово перемалювати повністю при зміні екрану
         memset(s_lcd_buf, 0, sizeof(s_lcd_buf));
         s_dirty = true;
     }
 }
 
-void display_set_force(float current, float target)
+void display_set_force(float current_kN, float target_kN)
 {
-    if (s_force != current || s_target != target) {
-        s_force  = current;
-        s_target = target;
+    if (s_force != current_kN || s_target != target_kN) {
+        s_force  = current_kN;
+        s_target = target_kN;
         if (s_screen == SCREEN_MAIN) s_dirty = true;
     }
 }
@@ -256,6 +313,15 @@ void display_set_calib_text(uint8_t line, const char *text)
     if (s_screen == SCREEN_CALIBRATION) s_dirty = true;
 }
 
+void display_set_active_preset(int8_t idx)
+{
+    s_active_preset = idx;
+    if (s_screen == SCREEN_MAIN) {
+        memset(s_lcd_buf, 0, sizeof(s_lcd_buf));  // примусово перемалювати рядок 0
+        s_dirty = true;
+    }
+}
+
 void display_menu_next(void)
 {
     if (s_menu_item < MENU_ITEMS - 1) {
@@ -274,10 +340,25 @@ void display_menu_prev(void)
 
 void display_menu_select(void)
 {
-    (void)0;  // Обробляється в main loop через display_menu_get_item()
+    (void)0;
 }
 
 uint8_t display_menu_get_item(void)
 {
     return s_menu_item;
+}
+
+void display_preset_scroll(int8_t delta)
+{
+    if (delta > 0 && s_preset_item < PRESET_COUNT - 1) {
+        s_preset_item++;
+    } else if (delta < 0 && s_preset_item > 0) {
+        s_preset_item--;
+    }
+    if (s_screen == SCREEN_PRESET) s_dirty = true;
+}
+
+uint8_t display_preset_get_item(void)
+{
+    return s_preset_item;
 }

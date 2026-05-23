@@ -27,12 +27,16 @@
 #define ACCEL_STEPS         2000    // кроків/с² (не використовується напряму, залишено для документації)
 
 /* ===== Зусилля ===== */
-// Датчик: LCF-6-V 2T (2000 кг), практичне обмеження для НФ
-#define FORCE_MAX_KG        500.0f
-#define FORCE_DEFAULT_KG    15.0f
-#define FORCE_STEP_KG       0.1f    // крок енкодера
-#define SLOWDOWN_THRESHOLD  0.80f   // 80% → перехід на SPEED_SLOW
-#define OVERLOAD_FACTOR     1.10f   // 110% → аварійна зупинка
+// Датчик: LCF-6-V 2T (2000 кг = ~19.6 кН)
+// Робочий діапазон: 7–16 кН (PDE TDI 300/400)
+#define KN_TO_KG            101.97f              // 1 кН = 101.97 кг
+#define FORCE_MAX_KG        2040.0f              // 20 кН — ліміт датчика
+#define FORCE_DEFAULT_KN    8.75f               // T300 Nozzle midpoint
+#define FORCE_DEFAULT_KG    (FORCE_DEFAULT_KN * KN_TO_KG)  // ≈892 кг
+#define FORCE_STEP_KN       0.1f                // крок енкодера в кН
+#define FORCE_STEP_KG       (FORCE_STEP_KN * KN_TO_KG)     // ≈10.2 кг
+#define SLOWDOWN_THRESHOLD  0.80f               // 80% → перехід на SPEED_SLOW
+#define OVERLOAD_FACTOR     1.10f               // 110% → аварійна зупинка
 
 /* ===== EEPROM (емуляція у Flash) ===== */
 #define EEPROM_CALIB_FACTOR   0x00  // float, 4 байти — калібрувальний коефіцієнт HX711

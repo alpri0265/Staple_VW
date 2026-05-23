@@ -7,6 +7,7 @@
 typedef enum {
     SCREEN_MAIN,
     SCREEN_MENU,
+    SCREEN_PRESET,        // вибір пресету (тип НФ + операція)
     SCREEN_CALIBRATION,
     SCREEN_SETTINGS,
     SCREEN_ERROR
@@ -17,14 +18,22 @@ void display_update(void);                       // оновити LCD якщо 
 
 void          display_set_screen(DisplayScreen s);
 DisplayScreen display_get_screen(void);
-void          display_set_force(float current, float target);
-void display_show_error(const char *msg);
-void display_set_calib_text(uint8_t line, const char *text);
+// current та target передаються в кН
+void          display_set_force(float current_kN, float target_kN);
+void          display_show_error(const char *msg);
+void          display_set_calib_text(uint8_t line, const char *text);
+
+// Активний пресет для головного екрану (-1 = немає)
+void display_set_active_preset(int8_t idx);
 
 // Меню (навігація енкодером)
-void display_menu_next(void);
-void display_menu_prev(void);
-void display_menu_select(void);
+void    display_menu_next(void);
+void    display_menu_prev(void);
+void    display_menu_select(void);
 uint8_t display_menu_get_item(void);
+
+// Список пресетів (навігація енкодером)
+void    display_preset_scroll(int8_t delta);
+uint8_t display_preset_get_item(void);
 
 #endif /* __DISPLAY_H */

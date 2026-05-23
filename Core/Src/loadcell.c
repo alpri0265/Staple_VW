@@ -126,6 +126,11 @@ float loadcell_get_kg(void)
     return s_force_kg;
 }
 
+float loadcell_get_kN(void)
+{
+    return s_force_kg / 101.97f;
+}
+
 bool loadcell_has_error(void)
 {
     return s_has_error;
