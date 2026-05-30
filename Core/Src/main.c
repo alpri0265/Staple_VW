@@ -31,6 +31,8 @@
 #include "display.h"
 #include "calibration.h"
 #include "preset.h"
+#include "torque_angle.h"
+#include "gpio.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,6 +58,10 @@ static int8_t   s_preset_idx   = -1;     // активний пресет (-1 = 
 static uint32_t s_display_tick = 0;
 static bool     s_fine_used    = false;  // ENC hold використовувався для руху мотора
 static uint32_t s_fine_tick    = 0;      // час останнього тіку енкодера у fine mode
+
+// Кутовий енкодер: антидребезг кнопки ZERO (PD4)
+static uint32_t s_zero_btn_tick    = 0;
+static bool     s_zero_btn_last    = false;  // попередній стан кнопки
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -105,24 +111,31 @@ int main(void)
   loadcell_init();
   input_init();
   calib_init();
+  MX_GPIO_ZERO_BTN_Init();
+  torque_angle_init();
 
   // Завантажити збережену калібровку з Flash
   {
     float   saved_scale;
     int32_t saved_offset;
     float   saved_target;
-    if (flash_load(&saved_scale, &saved_offset, &saved_target)) {
+    float   saved_angle;
+    if (flash_load(&saved_scale, &saved_offset, &saved_target, &saved_angle)) {
       loadcell_set_scale(saved_scale);
       loadcell_set_offset(saved_offset);
       if (saved_target > 0.0f && saved_target <= FORCE_MAX_KG) {
         s_target_kg = saved_target;
+      }
+      if (saved_angle > 0.0f && saved_angle <= ANGLE_MAX_DEG) {
+        torque_angle_set_target(saved_angle);
       }
     }
   }
 
   display_init();
   display_set_screen(SCREEN_MAIN);
-  display_set_force(0.0f, s_target_kg);
+  display_set_force(0.0f, s_target_kg / KN_TO_KG);
+  display_set_angle(0.0f, torque_angle_get_target(), false);
 
   HAL_TIM_Base_Start_IT(&htim7);
   /* USER CODE END 2 */
@@ -222,10 +235,26 @@ int main(void)
         if (s_target_kg > FORCE_MAX_KG)   s_target_kg = FORCE_MAX_KG;
       }
 
-      // Оновити дисплей ~10 Гц, передаємо значення в кН
+      // Кнопка ZERO — антидребезг у main loop (PD4, LOW = натиснуто)
+      {
+        bool zero_now = (HAL_GPIO_ReadPin(ZERO_BTN_GPIO_Port, ZERO_BTN_Pin) == GPIO_PIN_RESET);
+        if (zero_now && !s_zero_btn_last) {
+          // Передній фронт натискання з витримкою часу
+          if ((HAL_GetTick() - s_zero_btn_tick) >= DEBOUNCE_MS) {
+            torque_angle_zero();
+          }
+          s_zero_btn_tick = HAL_GetTick();
+        }
+        s_zero_btn_last = zero_now;
+      }
+
+      // Оновити дисплей ~10 Гц, передаємо значення в кН + кут
       if ((HAL_GetTick() - s_display_tick) >= 100U) {
         s_display_tick = HAL_GetTick();
         display_set_force(loadcell_get_kN(), s_target_kg / KN_TO_KG);
+        display_set_angle(torque_angle_get_deg(),
+                          torque_angle_get_target(),
+                          torque_angle_is_reached());
       }
 
     } else if (cur_screen == SCREEN_MENU) {
@@ -239,7 +268,10 @@ int main(void)
           case 0: display_set_screen(SCREEN_MAIN); break;
           case 1: display_set_screen(SCREEN_PRESET); break;
           case 2: calib_start(s_target_kg); break;
-          case 3: display_set_screen(SCREEN_SETTINGS); break;
+          case 3:
+            display_settings_set_angle(torque_angle_get_target());
+            display_set_screen(SCREEN_SETTINGS);
+            break;
           case 4: motor_reset_position(); display_set_screen(SCREEN_MAIN); break;
           default: break;
         }
@@ -271,7 +303,17 @@ int main(void)
 
     } else if (cur_screen == SCREEN_SETTINGS) {
 
+      // Енкодер: змінюємо цільовий кут затяжки
+      if (enc_delta != 0) {
+        float new_angle = torque_angle_get_target() + (float)enc_delta * ANGLE_STEP_DEG;
+        torque_angle_set_target(new_angle);
+        display_settings_set_angle(torque_angle_get_target());
+      }
+
+      // Кнопка енкодера: зберегти кут у Flash і повернутись до меню
       if (input_enc_sw_pressed()) {
+        flash_save(loadcell_get_scale(), loadcell_get_offset(),
+                   s_target_kg, torque_angle_get_target());
         display_set_screen(SCREEN_MENU);
       }
     }

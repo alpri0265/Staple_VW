@@ -43,7 +43,7 @@
 #define EEPROM_CALIB_OFFSET   0x04  // int32, 4 байти — нульове зміщення (tare)
 #define EEPROM_TARGET_FORCE   0x08  // float, 4 байти — останнє задане зусилля
 #define EEPROM_MAGIC          0x0C  // uint8 = 0xAB — маркер валідності даних
-#define EEPROM_MAGIC_VALUE    0xAB
+#define EEPROM_MAGIC_VALUE    0xAC  // 0xAC = v2: додано EEPROM_ANGLE_TARGET
 
 /* ===== HX711 налаштування ===== */
 #define HX711_GAIN_128      1       // Channel A, gain 128 (за замовчуванням)
@@ -57,5 +57,18 @@
 
 /* ===== Тонка підстройка (ENC hold mode) ===== */
 #define FINE_TIMEOUT_MS     300     // мс без тіків енкодера → зупин мотора
+
+/* ===== Кутовий енкодер (PandAuto P3022-V1-CW360) ===== */
+// TIM3 у режимі Encoder Interface (4x), PC6=CH1 (A), PC7=CH2 (B)
+#define ANGLE_ENC_PPR       360                              // імпульсів/оберт
+#define ANGLE_STEPS_REV     (ANGLE_ENC_PPR * 4)             // 1440 кроків/об (4x)
+#define ANGLE_DEG_PER_STEP  (360.0f / ANGLE_STEPS_REV)      // 0.25°/крок
+#define ANGLE_DEFAULT_DEG   90.0f                            // типовий кут VW PD
+#define ANGLE_STEP_DEG      5.0f                             // крок зміни у налаштуваннях
+#define ANGLE_MAX_DEG       720.0f                           // макс. 2 оберти
+
+/* ===== EEPROM — кутовий енкодер ===== */
+#define EEPROM_ANGLE_TARGET   0x10  // float, 4 байти — цільовий кут (градуси)
+// 0x14–0xFF зарезервовано
 
 #endif /* __CONFIG_H */

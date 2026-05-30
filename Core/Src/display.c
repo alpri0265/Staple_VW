@@ -42,6 +42,12 @@ static char s_calib_lines[LCD_ROWS][LCD_COLS + 1];
 // Помилка
 static char s_error_msg[LCD_COLS + 1];
 
+// Кутовий енкодер
+static float   s_angle_current  = 0.0f;
+static float   s_angle_target   = 90.0f;
+static bool    s_angle_reached  = false;
+static uint8_t s_blink_tick     = 0;
+
 // ===== PCF8574 / LCD низькорівневі функції =====
 
 static void pcf_write(uint8_t byte)
@@ -132,22 +138,33 @@ static void build_screen_main(void)
         const Preset_t *p = &g_presets[s_active_preset];
         char rng[8];
         format_range_kN(rng, p->force_min_kN, p->force_max_kN);
-        // "300 Nozzle  8.5-9.0"  = 3+1+8+7 = 19 chars → padded to 20
         snprintf(tmp, sizeof(tmp), "%-3s %-8s%s", p->inj_name, p->op_name, rng);
     } else {
         snprintf(tmp, sizeof(tmp), "VW NF PRESS");
     }
     make_line_padded(s_new_buf[0], tmp);
 
-    // Рядок 1: поточне зусилля в кН
-    snprintf(tmp, sizeof(tmp), "Force: %7.2f kN", (double)s_force);
+    // Рядок 1: поточне і задане зусилля (компактно)
+    // "F: 8.75 kN  T: 8.75 "  → 20 символів
+    snprintf(tmp, sizeof(tmp), "F:%5.2f kN  T:%5.2f",
+             (double)s_force, (double)s_target);
     make_line_padded(s_new_buf[1], tmp);
 
-    // Рядок 2: задане зусилля в кН
-    snprintf(tmp, sizeof(tmp), "Target:%7.2f kN", (double)s_target);
-    make_line_padded(s_new_buf[2], tmp);
+    // Рядок 2: кут (поточний / цільовий)
+    // Якщо досягнуто — блимаємо між значенням і "DONE!"
+    s_blink_tick++;
+    if (s_angle_reached && (s_blink_tick & 0x03U)) {
+        // ~75% часу показуємо "DONE!"
+        make_line_padded(s_new_buf[2], "Angle: [  DONE!  ]  ");
+    } else {
+        // "Angle: 145.0 / 90.0"  → 20 символів
+        snprintf(tmp, sizeof(tmp), "Angle:%6.1f /%6.1f",
+                 (double)s_angle_current, (double)s_angle_target);
+        make_line_padded(s_new_buf[2], tmp);
+    }
 
-    make_line_padded(s_new_buf[3], "[^v] ENC    STOP");
+    // Рядок 3: підказки (ZERO для скидання кута)
+    make_line_padded(s_new_buf[3], "[ZERO] [^v] ENC STP");
 }
 
 #define MENU_ITEMS 5
@@ -215,12 +232,25 @@ static void build_screen_calib(void)
     }
 }
 
+static float s_settings_angle = 90.0f;  // відображається у SCREEN_SETTINGS
+
 static void build_screen_settings(void)
 {
+    char tmp[LCD_COLS + 1];
     make_line_padded(s_new_buf[0], "=== SETTINGS ===");
-    make_line_padded(s_new_buf[1], "Not yet available");
-    make_line_padded(s_new_buf[2], "");
-    make_line_padded(s_new_buf[3], "BTN=back");
+    // Рядок 1: налаштування цільового кута
+    snprintf(tmp, sizeof(tmp), "Angle target:%6.1f", (double)s_settings_angle);
+    make_line_padded(s_new_buf[1], tmp);
+    make_line_padded(s_new_buf[2], "ENC=change  BTN=OK");
+    make_line_padded(s_new_buf[3], "");
+}
+
+void display_settings_set_angle(float deg)
+{
+    if (s_settings_angle != deg) {
+        s_settings_angle = deg;
+        if (s_screen == SCREEN_SETTINGS) s_dirty = true;
+    }
 }
 
 static void build_screen_error(void)
@@ -293,6 +323,17 @@ void display_set_force(float current_kN, float target_kN)
     if (s_force != current_kN || s_target != target_kN) {
         s_force  = current_kN;
         s_target = target_kN;
+        if (s_screen == SCREEN_MAIN) s_dirty = true;
+    }
+}
+
+void display_set_angle(float current_deg, float target_deg, bool reached)
+{
+    if (s_angle_current != current_deg || s_angle_target != target_deg ||
+        s_angle_reached != reached) {
+        s_angle_current = current_deg;
+        s_angle_target  = target_deg;
+        s_angle_reached = reached;
         if (s_screen == SCREEN_MAIN) s_dirty = true;
     }
 }

@@ -3,6 +3,7 @@
 #include "display.h"
 #include "config.h"
 #include "main.h"
+#include "torque_angle.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -18,20 +19,22 @@ typedef struct {
     int32_t offset;
     float   target_force;
     uint8_t magic;
+    float   angle_target;   // додано у v2 (magic=0xAC)
 } FlashData_t;
 #pragma pack()
 
-bool flash_load(float *scale, int32_t *offset, float *target)
+bool flash_load(float *scale, int32_t *offset, float *target_force, float *angle_target)
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
     if (p->magic != EEPROM_MAGIC_VALUE) return false;
-    if (scale)  *scale  = p->scale;
-    if (offset) *offset = p->offset;
-    if (target) *target = p->target_force;
+    if (scale)        *scale        = p->scale;
+    if (offset)       *offset       = p->offset;
+    if (target_force) *target_force = p->target_force;
+    if (angle_target) *angle_target = p->angle_target;
     return true;
 }
 
-bool flash_save(float scale, int32_t offset, float target)
+bool flash_save(float scale, int32_t offset, float target_force, float angle_target)
 {
     HAL_FLASH_Unlock();
 
@@ -50,11 +53,11 @@ bool flash_save(float scale, int32_t offset, float target)
     FlashData_t data = {
         .scale        = scale,
         .offset       = offset,
-        .target_force = target,
-        .magic        = EEPROM_MAGIC_VALUE
+        .target_force = target_force,
+        .magic        = EEPROM_MAGIC_VALUE,
+        .angle_target = angle_target
     };
 
-    // Записуємо побайтово (HAL_FLASH_Program підтримує BYTE)
     const uint8_t *src  = (const uint8_t *)&data;
     uint32_t       addr = FLASH_EEPROM_ADDR;
     for (size_t i = 0; i < sizeof(FlashData_t); i++) {
@@ -208,7 +211,8 @@ void calib_update(void)
         }
 
         case CALIB_STEP_SAVE: {
-            flash_save(loadcell_get_scale(), loadcell_get_offset(), s_target_for_save);
+            flash_save(loadcell_get_scale(), loadcell_get_offset(),
+                       s_target_for_save, torque_angle_get_target());
             s_step = CALIB_STEP_VERIFY;
             update_display();
             break;

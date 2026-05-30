@@ -20,11 +20,16 @@ void          display_set_screen(DisplayScreen s);
 DisplayScreen display_get_screen(void);
 // current та target передаються в кН
 void          display_set_force(float current_kN, float target_kN);
+// current та target — кут у градусах; якщо reached=true → рядок блимає "ДОСЯГНУТО!"
+void          display_set_angle(float current_deg, float target_deg, bool reached);
 void          display_show_error(const char *msg);
 void          display_set_calib_text(uint8_t line, const char *text);
 
 // Активний пресет для головного екрану (-1 = немає)
 void display_set_active_preset(int8_t idx);
+
+// Налаштування: відображення цільового кута у SCREEN_SETTINGS
+void display_settings_set_angle(float deg);
 
 // Меню (навігація енкодером)
 void    display_menu_next(void);

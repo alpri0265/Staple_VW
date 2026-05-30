@@ -87,7 +87,14 @@ void Error_Handler(void);
 #define DIR_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
-
+// Кутовий енкодер (TIM3 encoder mode — ініціалізується в torque_angle.c)
+#define ANGLE_A_Pin        GPIO_PIN_6    // GPIOC — TIM3_CH1 (сигнал A)
+#define ANGLE_A_GPIO_Port  GPIOC
+#define ANGLE_B_Pin        GPIO_PIN_7    // GPIOC — TIM3_CH2 (сигнал B)
+#define ANGLE_B_GPIO_Port  GPIOC
+// Кнопка ZERO (скидання кута)
+#define ZERO_BTN_Pin       GPIO_PIN_4    // GPIOD — Input PULLUP (LOW = натиснуто)
+#define ZERO_BTN_GPIO_Port GPIOD
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
