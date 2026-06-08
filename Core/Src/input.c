@@ -105,6 +105,11 @@ int8_t input_enc_get_delta(void)
     return delta;
 }
 
+bool input_boost_held(void)
+{
+    return HAL_GPIO_ReadPin(BOOST_BTN_GPIO_Port, BOOST_BTN_Pin) == GPIO_PIN_RESET;
+}
+
 bool input_stop_pressed(void)
 {
     return s_stop_flag;

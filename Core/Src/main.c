@@ -32,6 +32,7 @@
 #include "calibration.h"
 #include "preset.h"
 #include "torque_angle.h"
+#include "speedpot.h"
 #include "gpio.h"
 /* USER CODE END Includes */
 
@@ -112,6 +113,8 @@ int main(void)
   input_init();
   calib_init();
   MX_GPIO_ZERO_BTN_Init();
+  MX_GPIO_BOOST_Init();
+  speedpot_init();
   torque_angle_init();
 
   // Завантажити збережену калібровку з Flash
@@ -192,13 +195,17 @@ int main(void)
       bool joy_up   = input_joy_up();
       bool joy_down = input_joy_down();
       bool enc_held = input_enc_sw_held();
+      bool boost    = input_boost_held();
+
+      // Boost: кнопка PC6 утримана → швидкість від потенціометра PA2
+      uint16_t joy_speed_normal = (force >= s_target_kg * SLOWDOWN_THRESHOLD)
+                                  ? SPEED_SLOW : SPEED_FAST;
+      uint16_t joy_speed = boost ? speedpot_get_speed() : joy_speed_normal;
 
       if (joy_up && !motor_is_limit_top()) {
-        uint16_t spd = (force >= s_target_kg * SLOWDOWN_THRESHOLD) ? SPEED_SLOW : SPEED_FAST;
-        motor_move_up(spd);
+        motor_move_up(joy_speed);
       } else if (joy_down && !motor_is_limit_bot()) {
-        uint16_t spd = (force >= s_target_kg * SLOWDOWN_THRESHOLD) ? SPEED_SLOW : SPEED_FAST;
-        motor_move_down(spd);
+        motor_move_down(joy_speed);
       } else if (!joy_up && !joy_down && !enc_held && motor_is_running()) {
         motor_stop();
       }

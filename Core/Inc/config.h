@@ -15,16 +15,20 @@
 #define STEPS_PER_MM        4000.0f
 
 /* ===== Швидкості (кроків/с) =====
- * TIM7 = 1ms → period = 1000/speed → min period = 1ms → max 500 full steps/s
- * Реальна швидкість: speed_actual = 1000 / (2 * period_ms) full steps/s
- *   SPEED_FAST: period=1ms → 500 steps/s → 0.125 mm/s ≈ 7.5 mm/min
- *   SPEED_SLOW: period=2ms → 250 steps/s → 0.063 mm/s ≈ 3.75 mm/min
- *   SPEED_ENC:  period=5ms → 100 steps/s → 0.025 mm/s ≈ 1.5 mm/min
+ * TIM7 = 500мкс → period = 1000/speed → min period = 1 тік = 500мкс
+ *   SPEED_FAST:  period=1 тік → 7.5 мм/хв
+ *   SPEED_SLOW:  period=2 тіки → 3.75 мм/хв
+ *   SPEED_ENC:   period=5 тіків → 1.5 мм/хв
+ *   SPEED_POT_MAX: period=1 тік + boost кнопка → 15 мм/хв
  */
-#define SPEED_FAST          1000    // джойстик, грубий рух (period=1ms)
-#define SPEED_SLOW          400     // при наближенні до цілі — 80% зусилля (period=2ms)
-#define SPEED_ENC           200     // енкодер, тонке підналаштування (period=5ms)
-#define ACCEL_STEPS         2000    // кроків/с² (не використовується напряму, залишено для документації)
+#define SPEED_FAST          500     // джойстик, грубий рух
+#define SPEED_SLOW          200     // при наближенні до цілі — 80% зусилля
+#define SPEED_ENC           100     // енкодер, тонке підналаштування
+#define ACCEL_STEPS         2000    // залишено для документації
+
+/* ===== Boost (потенціометр + кнопка PC6) ===== */
+#define SPEED_POT_MIN        50     // мінімальна швидкість потенціометра
+#define SPEED_POT_MAX      1000     // максимальна швидкість потенціометра (2x SPEED_FAST)
 
 /* ===== Зусилля ===== */
 // Датчик: LCF-6-V 2T (2000 кг = ~19.6 кН)
@@ -58,14 +62,14 @@
 /* ===== Тонка підстройка (ENC hold mode) ===== */
 #define FINE_TIMEOUT_MS     300     // мс без тіків енкодера → зупин мотора
 
-/* ===== Кутовий енкодер (PandAuto P3022-V1-CW360) ===== */
-// TIM3 у режимі Encoder Interface (4x), PC6=CH1 (A), PC7=CH2 (B)
-#define ANGLE_ENC_PPR       360                              // імпульсів/оберт
-#define ANGLE_STEPS_REV     (ANGLE_ENC_PPR * 4)             // 1440 кроків/об (4x)
-#define ANGLE_DEG_PER_STEP  (360.0f / ANGLE_STEPS_REV)      // 0.25°/крок
-#define ANGLE_DEFAULT_DEG   90.0f                            // типовий кут VW PD
-#define ANGLE_STEP_DEG      5.0f                             // крок зміни у налаштуваннях
-#define ANGLE_MAX_DEG       720.0f                           // макс. 2 оберти
+/* ===== Кутовий датчик (PandAuto P3022-V1-CW360, аналоговий 0-5V) ===== */
+// PA1 (ADC1_CH1) через дільник R1=10kΩ/R2=10kΩ → Vpin_max = 2.5V
+#define ANGLE_ADC_VREF      3.3f    // опорна напруга АЦП (В)
+#define ANGLE_SENSOR_V_MAX  5.0f    // напруга датчика при 360° (В, уточнити по паспорту)
+#define ANGLE_DIVIDER_RATIO 0.5f    // R2/(R1+R2) = 10k/20k = 0.5
+#define ANGLE_DEFAULT_DEG   90.0f   // типовий кут VW PD
+#define ANGLE_STEP_DEG      5.0f    // крок зміни у налаштуваннях
+#define ANGLE_MAX_DEG       360.0f  // абсолютний датчик — макс. 1 оберт
 
 /* ===== EEPROM — кутовий енкодер ===== */
 #define EEPROM_ANGLE_TARGET   0x10  // float, 4 байти — цільовий кут (градуси)

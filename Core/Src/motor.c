@@ -239,12 +239,13 @@ void motor_update(void)
 
 bool motor_is_limit_top(void)
 {
-    return HAL_GPIO_ReadPin(LIMIT_TOP_GPIO_Port, LIMIT_TOP_Pin) == GPIO_PIN_RESET;
+    // NC контакт на GND: нормально LOW, спрацювання = NC розімкнувся = HIGH
+    return HAL_GPIO_ReadPin(LIMIT_TOP_GPIO_Port, LIMIT_TOP_Pin) == GPIO_PIN_SET;
 }
 
 bool motor_is_limit_bot(void)
 {
-    return HAL_GPIO_ReadPin(LIMIT_BOT_GPIO_Port, LIMIT_BOT_Pin) == GPIO_PIN_RESET;
+    return HAL_GPIO_ReadPin(LIMIT_BOT_GPIO_Port, LIMIT_BOT_Pin) == GPIO_PIN_SET;
 }
 
 bool motor_is_running(void)
