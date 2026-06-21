@@ -403,3 +403,11 @@ uint8_t display_preset_get_item(void)
 {
     return s_preset_item;
 }
+
+void display_debug_line(const char *text)
+{
+    char buf[LCD_COLS + 1];
+    make_line_padded(buf, text);
+    lcd_set_cursor(0, 3);
+    lcd_print(buf);
+}

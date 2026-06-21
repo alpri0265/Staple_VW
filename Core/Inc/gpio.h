@@ -40,6 +40,7 @@ void MX_GPIO_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 void MX_GPIO_ZERO_BTN_Init(void);
+void MX_GPIO_BOOST_Init(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

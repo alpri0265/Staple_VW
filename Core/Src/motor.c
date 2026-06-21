@@ -78,19 +78,24 @@ void motor_move_up(uint16_t speed)
     if (motor_is_limit_top()) return;
 
     set_direction(true);
-
     uint16_t target = speed_to_period(speed);
-    // Стартуємо з повільного (прискорення): period = max(target, period_start)
-    uint16_t start_period = speed_to_period(50);  // 50 кроків/с — старт
-    if (start_period < target) start_period = target;
 
     __disable_irq();
-    s_period_target  = target;
-    s_period_current = start_period;
-    s_step_period    = start_period;
-    s_step_timer     = start_period;
-    s_accel_timer    = 5;  // оновлювати прискорення кожні 5 мс
-    s_state          = MOTOR_MOVING_UP;
+    s_period_target = target;
+    if (s_state != MOTOR_MOVING_UP) {
+        // Старт з нуля: починаємо повільно і розганяємось
+        uint16_t start_period = speed_to_period(50);
+        if (start_period < target) start_period = target;
+        s_period_current = start_period;
+        s_step_period    = start_period;
+        s_step_timer     = start_period;
+        s_accel_timer    = 10;
+    } else {
+        // Вже рухаємось: миттєво застосовуємо нову швидкість
+        s_period_current = target;
+        s_step_period    = target;
+    }
+    s_state = MOTOR_MOVING_UP;
     __enable_irq();
 }
 
@@ -100,18 +105,22 @@ void motor_move_down(uint16_t speed)
     if (motor_is_limit_bot()) return;
 
     set_direction(false);
-
     uint16_t target = speed_to_period(speed);
-    uint16_t start_period = speed_to_period(50);
-    if (start_period < target) start_period = target;
 
     __disable_irq();
-    s_period_target  = target;
-    s_period_current = start_period;
-    s_step_period    = start_period;
-    s_step_timer     = start_period;
-    s_accel_timer    = 5;
-    s_state          = MOTOR_MOVING_DOWN;
+    s_period_target = target;
+    if (s_state != MOTOR_MOVING_DOWN) {
+        uint16_t start_period = speed_to_period(50);
+        if (start_period < target) start_period = target;
+        s_period_current = start_period;
+        s_step_period    = start_period;
+        s_step_timer     = start_period;
+        s_accel_timer    = 10;
+    } else {
+        s_period_current = target;
+        s_step_period    = target;
+    }
+    s_state = MOTOR_MOVING_DOWN;
     __enable_irq();
 }
 

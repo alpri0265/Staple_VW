@@ -221,7 +221,9 @@ void EXTI0_IRQHandler(void)
 void EXTI3_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI3_IRQn 0 */
-
+  /* ENC_CLK перенесено на PC4/EXTI4 — очищаємо pending bit і виходимо */
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_3);
+  return;
   /* USER CODE END EXTI3_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(ENC_CLK_Pin);
   /* USER CODE BEGIN EXTI3_IRQn 1 */
@@ -286,5 +288,8 @@ void TIM7_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
+void EXTI4_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_4);
+}
 /* USER CODE END 1 */

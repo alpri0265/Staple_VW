@@ -87,6 +87,14 @@ void Error_Handler(void);
 #define DIR_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
+// ENC_CLK перенесено з PB3 (JTDO/SWO — конфлікт debug) на PC4 (чистий пін, EXTI4)
+#undef  ENC_CLK_Pin
+#undef  ENC_CLK_GPIO_Port
+#undef  ENC_CLK_EXTI_IRQn
+#define ENC_CLK_Pin         GPIO_PIN_4
+#define ENC_CLK_GPIO_Port   GPIOC
+#define ENC_CLK_EXTI_IRQn   EXTI4_IRQn
+
 // Кутовий енкодер (TIM3 encoder mode — ініціалізується в torque_angle.c)
 #define ANGLE_A_Pin        GPIO_PIN_6    // GPIOC — TIM3_CH1 (сигнал A)
 #define ANGLE_A_GPIO_Port  GPIOC

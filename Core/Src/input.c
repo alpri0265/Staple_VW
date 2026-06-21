@@ -15,8 +15,9 @@ static DebounceBtn_t s_joy_down;
 static DebounceBtn_t s_enc_sw;
 
 // Енкодер
-static volatile int8_t s_enc_delta  = 0;   // накопичені кроки (змінюється в ISR)
+static volatile int8_t s_enc_delta  = 0;   // накопичені кроки
 static volatile bool   s_stop_flag  = false;
+static bool            s_clk_prev   = true; // попередній стан CLK (HIGH = спокій)
 
 // ===== Приватні функції =====
 
@@ -66,8 +67,16 @@ void input_enc_isr(void)
 
 void input_update(void)
 {
-    // Тут можна додати логіку стану якщо потрібно
-    (void)0;
+    // Encoder polling: детектуємо falling edge CLK в main loop
+    bool clk = (HAL_GPIO_ReadPin(ENC_CLK_GPIO_Port, ENC_CLK_Pin) == GPIO_PIN_SET);
+    if (!clk && s_clk_prev) {
+        if (HAL_GPIO_ReadPin(ENC_DT_GPIO_Port, ENC_DT_Pin) == GPIO_PIN_SET) {
+            s_enc_delta++;
+        } else {
+            s_enc_delta--;
+        }
+    }
+    s_clk_prev = clk;
 }
 
 bool input_joy_up(void)

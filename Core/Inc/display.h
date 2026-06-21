@@ -41,4 +41,7 @@ uint8_t display_menu_get_item(void);
 void    display_preset_scroll(int8_t delta);
 uint8_t display_preset_get_item(void);
 
+// Тимчасова діагностика: пряме виведення рядка на рядок 3 LCD
+void display_debug_line(const char *text);
+
 #endif /* __DISPLAY_H */
