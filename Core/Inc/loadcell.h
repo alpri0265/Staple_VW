@@ -8,6 +8,8 @@ void    loadcell_init(void);
 void    loadcell_update(void);        // викликати з main loop
 float   loadcell_get_kg(void);        // повертає зусилля в кг
 float   loadcell_get_kN(void);        // повертає зусилля в кН (= kg / 101.97)
+float   loadcell_get_fast_kg(void);   // швидший фільтр для AUTO режиму
+float   loadcell_get_fast_kN(void);   // швидший фільтр в кН
 bool    loadcell_is_ready(void);      // HX711 готовий до зчитування
 bool    loadcell_has_error(void);     // timeout помилка (>500ms без даних)
 void    loadcell_tare(void);          // скинути нуль

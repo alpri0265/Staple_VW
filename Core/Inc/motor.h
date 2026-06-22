@@ -19,6 +19,8 @@ void motor_tim_tick(void);         // викликати з TIM7 IRQ — ген�
 
 void motor_move_up(uint16_t speed);
 void motor_move_down(uint16_t speed);
+void motor_burst_up(uint16_t speed, uint16_t steps);
+void motor_burst_down(uint16_t speed, uint16_t steps);
 void motor_nudge_up(uint16_t speed);   // тонка підстройка вгору (без розгону)
 void motor_nudge_down(uint16_t speed); // тонка підстройка вниз (без розгону)
 void motor_stop(void);             // м'яка зупинка
@@ -28,6 +30,7 @@ void motor_clear_error(void);      // скинути стан ERROR → IDLE п�
 bool motor_is_limit_top(void);
 bool motor_is_limit_bot(void);
 bool motor_is_running(void);
+bool motor_is_burst_active(void);
 
 float motor_get_position_mm(void);
 void  motor_reset_position(void);

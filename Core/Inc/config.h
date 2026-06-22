@@ -14,16 +14,31 @@
 // Кроків на 1 мм = (200 * 8 * 10) / 4 = 4000
 #define STEPS_PER_MM        4000.0f
 
-/* ===== Швидкості (кроків/с) =====
- * TIM7 = 1ms → period = 1000/speed → min period = 1ms → max 500 full steps/s
- * Реальна швидкість: speed_actual = 1000 / (2 * period_ms) full steps/s
- *   SPEED_FAST: period=1ms → 500 steps/s → 0.125 mm/s ≈ 7.5 mm/min
- *   SPEED_SLOW: period=2ms → 250 steps/s → 0.063 mm/s ≈ 3.75 mm/min
- *   SPEED_ENC:  period=5ms → 100 steps/s → 0.025 mm/s ≈ 1.5 mm/min
+/* ===== Таймінг TIM7 / STEP =====
+ * TIM7 працює з тікoм 100 us.
+ * STEP формується коротким імпульсом тривалістю STEP_PULSE_TICKS тікiв.
  */
-#define SPEED_FAST          1000    // джойстик, грубий рух (period=1ms)
-#define SPEED_SLOW          400     // при наближенні до цілі — 80% зусилля (period=2ms)
-#define SPEED_ENC           200     // енкодер, тонке підналаштування (period=5ms)
+#define TIM7_TICK_US        100U
+#define STEP_PULSE_TICKS    1U      // 100 us HIGH, чого достатньо для DM556
+
+/* ===== Швидкості (кроків/с) =====
+ * При TIM7 = 100 us швидкість відповідає заданій набагато точніше.
+ *   SPEED_FAST:     1000 steps/s → 0.25 mm/s ≈ 15 mm/min
+ *   SPEED_PRESS:     400 steps/s → 0.10 mm/s ≈ 6  mm/min
+ *   SPEED_ENC:       200 steps/s → 0.05 mm/s ≈ 3  mm/min
+ *   SPEED_APPROACH: 2000 steps/s → 0.50 mm/s ≈ 30 mm/min
+ *   SPEED_APPROACH_SOFT: 800 steps/s → 0.20 mm/s ≈ 12 mm/min
+ */
+#define SPEED_FAST          1000    // вільний рух / retract
+#define SPEED_PRESS         400     // робочий рух після контакту
+#define SPEED_ENC           200     // енкодер, тонке підналаштування
+#define SPEED_APPROACH      2000    // швидкий підхід до деталі до появи навантаження
+#define SPEED_APPROACH_SOFT 800     // м'який підхід перед контактом
+#define APPROACH_SOFT_KG    5.0f    // після цього порогу скидаємо швидкість до soft approach
+#define APPROACH_CONTACT_KG 10.0f   // поріг контакту: після нього переходимо на SPEED_PRESS
+#define HEAVY_START_SPEED   80      // окремий профіль старту для важкої механіки
+#define HEAVY_RAMP_MS       20      // раз на N мс зменшуємо/збільшуємо period у heavy profile
+#define HEAVY_RAMP_STEP     1       // крок зміни period у heavy profile
 #define ACCEL_STEPS         2000    // кроків/с² (не використовується напряму, залишено для документації)
 
 /* ===== Зусилля ===== */
@@ -35,8 +50,21 @@
 #define FORCE_DEFAULT_KG    (FORCE_DEFAULT_KN * KN_TO_KG)  // ≈892 кг
 #define FORCE_STEP_KN       0.1f                // крок енкодера в кН
 #define FORCE_STEP_KG       (FORCE_STEP_KN * KN_TO_KG)     // ≈10.2 кг
-#define SLOWDOWN_THRESHOLD  0.80f               // 80% → перехід на SPEED_SLOW
+#define SLOWDOWN_THRESHOLD  0.80f               // 80% → резерв під додаткове уповільнення
 #define OVERLOAD_FACTOR     1.10f               // 110% → аварійна зупинка
+
+/* ===== AUTO режим по зусиллю ===== */
+#define AUTO_FORCE_TOLERANCE_KG  3.0f    // вікно готовності навколо target
+#define AUTO_CRUISE_ENTRY_KG     50.0f   // вище цієї похибки можна ще рухатись безперервно
+#define AUTO_BURST_LARGE_ERR_KG  20.0f   // велика похибка → великий burst
+#define AUTO_BURST_MED_ERR_KG    8.0f    // середня похибка → середній burst
+#define AUTO_BURST_LARGE_STEPS   50U
+#define AUTO_BURST_MED_STEPS     20U
+#define AUTO_BURST_SMALL_STEPS   5U
+#define AUTO_SETTLE_MS           400U    // пауза на стабілізацію після burst
+#define AUTO_HOLD_MS             700U    // коротка пауза підтвердження в допуску
+#define AUTO_DONE_MS             1500U   // показати DONE перед поверненням в IDLE
+#define AUTO_FAST_FILTER_ALPHA   0.50f   // швидкий фільтр сили для AUTO алгоритму
 
 /* ===== EEPROM (емуляція у Flash) ===== */
 #define EEPROM_CALIB_FACTOR   0x00  // float, 4 байти — калібрувальний коефіцієнт HX711

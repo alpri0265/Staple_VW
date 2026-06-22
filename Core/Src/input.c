@@ -7,16 +7,18 @@
 typedef struct {
     uint8_t  counter;    // лічильник мс утримання
     bool     state;      // поточний підтверджений стан (true = натиснуто)
-    bool     prev;       // попередній підтверджений стан
 } DebounceBtn_t;
 
 static DebounceBtn_t s_joy_up;
 static DebounceBtn_t s_joy_down;
 static DebounceBtn_t s_enc_sw;
+static uint8_t       s_debounce_subtick = 0;
 
 // Енкодер
 static volatile int8_t s_enc_delta  = 0;   // накопичені кроки (змінюється в ISR)
 static volatile bool   s_stop_flag  = false;
+static volatile bool   s_enc_sw_pressed_flag  = false;
+static volatile bool   s_enc_sw_released_flag = false;
 
 // ===== Приватні функції =====
 
@@ -29,7 +31,6 @@ static void debounce_tick(DebounceBtn_t *btn, bool raw_pressed)
     } else {
         btn->counter = 0;
     }
-    btn->prev  = btn->state;
     btn->state = (btn->counter >= DEBOUNCE_MS);
 }
 
@@ -42,14 +43,31 @@ void input_init(void)
     s_enc_sw  = (DebounceBtn_t){0};
     s_enc_delta = 0;
     s_stop_flag = false;
+    s_enc_sw_pressed_flag = false;
+    s_enc_sw_released_flag = false;
+    s_debounce_subtick = 0;
 }
 
 void input_debounce_tick(void)
 {
+    s_debounce_subtick++;
+    if (s_debounce_subtick < (1000U / TIM7_TICK_US)) {
+        return;
+    }
+    s_debounce_subtick = 0;
+
+    bool enc_prev = s_enc_sw.state;
+
     // LOW = натиснуто (pull-up + active-low)
     debounce_tick(&s_joy_up,   HAL_GPIO_ReadPin(JOY_UP_GPIO_Port,   JOY_UP_Pin)   == GPIO_PIN_RESET);
     debounce_tick(&s_joy_down, HAL_GPIO_ReadPin(JOY_DOWN_GPIO_Port, JOY_DOWN_Pin) == GPIO_PIN_RESET);
     debounce_tick(&s_enc_sw,   HAL_GPIO_ReadPin(ENC_SW_GPIO_Port,   ENC_SW_Pin)   == GPIO_PIN_RESET);
+
+    if (!enc_prev && s_enc_sw.state) {
+        s_enc_sw_pressed_flag = true;
+    } else if (enc_prev && !s_enc_sw.state) {
+        s_enc_sw_released_flag = true;
+    }
 }
 
 // Викликається з EXTI3 ISR на falling edge ENC_CLK
@@ -82,7 +100,12 @@ bool input_joy_down(void)
 
 bool input_enc_sw_pressed(void)
 {
-    return (s_enc_sw.state && !s_enc_sw.prev);
+    bool pressed;
+    __disable_irq();
+    pressed = s_enc_sw_pressed_flag;
+    s_enc_sw_pressed_flag = false;
+    __enable_irq();
+    return pressed;
 }
 
 bool input_enc_sw_held(void)
@@ -92,7 +115,12 @@ bool input_enc_sw_held(void)
 
 bool input_enc_sw_released(void)
 {
-    return (!s_enc_sw.state && s_enc_sw.prev);
+    bool released;
+    __disable_irq();
+    released = s_enc_sw_released_flag;
+    s_enc_sw_released_flag = false;
+    __enable_irq();
+    return released;
 }
 
 int8_t input_enc_get_delta(void)

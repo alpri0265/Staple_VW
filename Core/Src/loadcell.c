@@ -8,6 +8,8 @@
 static float   s_scale        = 1.0f;
 static int32_t s_offset       = 0;
 static float   s_force_kg     = 0.0f;
+static float   s_force_fast_kg = 0.0f;
+static bool    s_fast_valid   = false;
 
 static int32_t s_avg_buf[AVG_SAMPLES];
 static uint8_t s_avg_idx      = 0;
@@ -84,6 +86,8 @@ void loadcell_init(void)
     s_avg_count  = 0;
     s_has_error  = false;
     s_last_tick  = HAL_GetTick();
+    s_force_fast_kg = 0.0f;
+    s_fast_valid = false;
 }
 
 bool loadcell_is_ready(void)
@@ -116,8 +120,18 @@ void loadcell_update(void)
 
     if (s_scale != 0.0f) {
         s_force_kg = (float)(avg - s_offset) / s_scale;
+
+        float raw_force_kg = (float)(raw - s_offset) / s_scale;
+        if (!s_fast_valid) {
+            s_force_fast_kg = raw_force_kg;
+            s_fast_valid = true;
+        } else {
+            s_force_fast_kg += (raw_force_kg - s_force_fast_kg) * AUTO_FAST_FILTER_ALPHA;
+        }
     } else {
         s_force_kg = 0.0f;
+        s_force_fast_kg = 0.0f;
+        s_fast_valid = false;
     }
 }
 
@@ -129,6 +143,16 @@ float loadcell_get_kg(void)
 float loadcell_get_kN(void)
 {
     return s_force_kg / 101.97f;
+}
+
+float loadcell_get_fast_kg(void)
+{
+    return s_force_fast_kg;
+}
+
+float loadcell_get_fast_kN(void)
+{
+    return s_force_fast_kg / 101.97f;
 }
 
 bool loadcell_has_error(void)

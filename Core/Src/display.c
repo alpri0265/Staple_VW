@@ -27,6 +27,11 @@ static const uint8_t ROW_ADDR[4] = { 0x00, 0x40, 0x14, 0x54 };
 static DisplayScreen  s_screen        = SCREEN_MAIN;
 static float          s_force         = 0.0f;   // кН
 static float          s_target        = FORCE_DEFAULT_KN;  // кН
+static DisplayMotionMode s_motion_mode = DISPLAY_MODE_IDLE;
+static uint16_t       s_motion_speed  = 0;      // командна швидкість, steps/s
+static float          s_auto_force    = 0.0f;   // кН для AUTO екрана
+static float          s_auto_target   = FORCE_DEFAULT_KN;
+static float          s_auto_error    = 0.0f;   // кН
 static bool           s_dirty         = true;
 static uint8_t        s_menu_item     = 0;
 static uint8_t        s_preset_item   = 0;  // поточна позиція у списку пресетів
@@ -126,6 +131,7 @@ static void format_range_kN(char *buf, float fmin, float fmax)
 static void build_screen_main(void)
 {
     char tmp[LCD_COLS + 1];
+    const char *mode = "IDLE";
 
     // Рядок 0: активний пресет або назва пристрою
     if (s_active_preset >= 0 && s_active_preset < PRESET_COUNT) {
@@ -147,12 +153,61 @@ static void build_screen_main(void)
     snprintf(tmp, sizeof(tmp), "Target:%7.2f kN", (double)s_target);
     make_line_padded(s_new_buf[2], tmp);
 
-    make_line_padded(s_new_buf[3], "[^v] ENC    STOP");
+    switch (s_motion_mode) {
+        case DISPLAY_MODE_APPROACH: mode = "APPR"; break;
+        case DISPLAY_MODE_SOFT:     mode = "SOFT"; break;
+        case DISPLAY_MODE_PRESS:    mode = "PRESS"; break;
+        case DISPLAY_MODE_ASEEK:    mode = "ASEEK"; break;
+        case DISPLAY_MODE_HOLD:     mode = "HOLD"; break;
+        case DISPLAY_MODE_DONE:     mode = "DONE"; break;
+        case DISPLAY_MODE_FINE:     mode = "FINE"; break;
+        case DISPLAY_MODE_RETRACT:  mode = "BACK"; break;
+        case DISPLAY_MODE_IDLE:
+        default:                    mode = "IDLE"; break;
+    }
+
+    snprintf(tmp, sizeof(tmp), "%-5s%4u  STOP", mode, (unsigned)s_motion_speed);
+    make_line_padded(s_new_buf[3], tmp);
+}
+
+static void build_screen_auto(void)
+{
+    char tmp[LCD_COLS + 1];
+    const char *mode = "IDLE";
+    bool auto_idle_hint = (s_motion_mode == DISPLAY_MODE_IDLE && s_motion_speed == 0);
+
+    switch (s_motion_mode) {
+        case DISPLAY_MODE_APPROACH: mode = "APPR"; break;
+        case DISPLAY_MODE_SOFT:     mode = "SOFT"; break;
+        case DISPLAY_MODE_PRESS:    mode = "PRESS"; break;
+        case DISPLAY_MODE_ASEEK:    mode = "ASEEK"; break;
+        case DISPLAY_MODE_HOLD:     mode = "HOLD"; break;
+        case DISPLAY_MODE_DONE:     mode = "DONE"; break;
+        case DISPLAY_MODE_FINE:     mode = "FINE"; break;
+        case DISPLAY_MODE_RETRACT:  mode = "BACK"; break;
+        case DISPLAY_MODE_IDLE:
+        default:                    mode = "IDLE"; break;
+    }
+
+    make_line_padded(s_new_buf[0], "=== AUTO FORCE ===");
+
+    snprintf(tmp, sizeof(tmp), "Now:   %6.2f kN", (double)s_auto_force);
+    make_line_padded(s_new_buf[1], tmp);
+
+    snprintf(tmp, sizeof(tmp), "T:%5.2f E:%+5.2f", (double)s_auto_target, (double)s_auto_error);
+    make_line_padded(s_new_buf[2], tmp);
+
+    if (auto_idle_hint) {
+        snprintf(tmp, sizeof(tmp), "UP=start DN=stop");
+    } else {
+        snprintf(tmp, sizeof(tmp), "%-5s%4u  STOP", mode, (unsigned)s_motion_speed);
+    }
+    make_line_padded(s_new_buf[3], tmp);
 }
 
 #define MENU_ITEMS 5
 static const char *MENU_LABELS[MENU_ITEMS] = {
-    "1.Work mode",
+    "1.Auto force",
     "2.Presets",
     "3.Calibration",
     "4.Settings",
@@ -263,6 +318,7 @@ void display_update(void)
 
     switch (s_screen) {
         case SCREEN_MAIN:         build_screen_main();     break;
+        case SCREEN_AUTO:         build_screen_auto();     break;
         case SCREEN_MENU:         build_screen_menu();     break;
         case SCREEN_PRESET:       build_screen_preset();   break;
         case SCREEN_CALIBRATION:  build_screen_calib();    break;
@@ -294,6 +350,32 @@ void display_set_force(float current_kN, float target_kN)
         s_force  = current_kN;
         s_target = target_kN;
         if (s_screen == SCREEN_MAIN) s_dirty = true;
+    }
+}
+
+void display_set_motion_mode(DisplayMotionMode mode)
+{
+    if (s_motion_mode != mode) {
+        s_motion_mode = mode;
+        if (s_screen == SCREEN_MAIN || s_screen == SCREEN_AUTO) s_dirty = true;
+    }
+}
+
+void display_set_motion_speed(uint16_t speed_steps)
+{
+    if (s_motion_speed != speed_steps) {
+        s_motion_speed = speed_steps;
+        if (s_screen == SCREEN_MAIN || s_screen == SCREEN_AUTO) s_dirty = true;
+    }
+}
+
+void display_set_auto_metrics(float current_kN, float target_kN, float error_kN)
+{
+    if (s_auto_force != current_kN || s_auto_target != target_kN || s_auto_error != error_kN) {
+        s_auto_force  = current_kN;
+        s_auto_target = target_kN;
+        s_auto_error  = error_kN;
+        if (s_screen == SCREEN_AUTO) s_dirty = true;
     }
 }
 

@@ -208,9 +208,13 @@ void calib_update(void)
         }
 
         case CALIB_STEP_SAVE: {
-            flash_save(loadcell_get_scale(), loadcell_get_offset(), s_target_for_save);
-            s_step = CALIB_STEP_VERIFY;
-            update_display();
+            if (flash_save(loadcell_get_scale(), loadcell_get_offset(), s_target_for_save)) {
+                s_step = CALIB_STEP_VERIFY;
+                update_display();
+            } else {
+                s_step = CALIB_STEP_DONE;
+                display_show_error("Flash save failed");
+            }
             break;
         }
 

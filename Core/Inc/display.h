@@ -6,12 +6,25 @@
 
 typedef enum {
     SCREEN_MAIN,
+    SCREEN_AUTO,
     SCREEN_MENU,
     SCREEN_PRESET,        // вибір пресету (тип НФ + операція)
     SCREEN_CALIBRATION,
     SCREEN_SETTINGS,
     SCREEN_ERROR
 } DisplayScreen;
+
+typedef enum {
+    DISPLAY_MODE_IDLE = 0,
+    DISPLAY_MODE_APPROACH,
+    DISPLAY_MODE_SOFT,
+    DISPLAY_MODE_PRESS,
+    DISPLAY_MODE_ASEEK,
+    DISPLAY_MODE_HOLD,
+    DISPLAY_MODE_DONE,
+    DISPLAY_MODE_FINE,
+    DISPLAY_MODE_RETRACT
+} DisplayMotionMode;
 
 void display_init(void);
 void display_update(void);                       // оновити LCD якщо змінились дані
@@ -20,6 +33,9 @@ void          display_set_screen(DisplayScreen s);
 DisplayScreen display_get_screen(void);
 // current та target передаються в кН
 void          display_set_force(float current_kN, float target_kN);
+void          display_set_motion_mode(DisplayMotionMode mode);
+void          display_set_motion_speed(uint16_t speed_steps);
+void          display_set_auto_metrics(float current_kN, float target_kN, float error_kN);
 void          display_show_error(const char *msg);
 void          display_set_calib_text(uint8_t line, const char *text);
 

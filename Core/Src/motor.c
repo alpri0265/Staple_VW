@@ -7,15 +7,29 @@
 static volatile MotorState  s_state        = MOTOR_IDLE;
 static volatile int32_t     s_step_pos     = 0;      // поточна позиція (кроки)
 
-// Генерація STEP: лічильник у 1ms тіках між імпульсами
+// Генерація STEP: короткий імпульс HIGH і окремий інтервал між передніми фронтами.
 static volatile uint16_t    s_step_period  = 0;      // тіків між кроками (0 = зупинено)
-static volatile uint16_t    s_step_timer   = 0;      // лічильник до наступного кроку
+static volatile uint16_t    s_step_timer   = 0;      // лічильник до наступного переднього фронту
+static volatile uint16_t    s_pulse_timer  = 0;      // тривалість поточного STEP HIGH у тіках
+static volatile uint16_t    s_burst_steps  = 0;      // залишок кроків у burst mode (0 = без обмеження)
 static volatile bool        s_step_state   = false;  // поточний стан STEP піна
 
 // Прискорення
 static volatile uint16_t    s_period_target = 0;     // цільовий period (мінімальний)
 static volatile uint16_t    s_period_current = 0;    // поточний period
 static volatile uint16_t    s_accel_timer  = 0;      // мс до наступного кроку прискорення
+
+typedef struct {
+    uint16_t start_speed;   // стартова швидкість профілю в steps/s
+    uint16_t ramp_ms;       // інтервал зміни period у ms
+    uint16_t ramp_step;     // на скільки тіків змінюємо period за один крок ramp
+} MotorRampProfile;
+
+static const MotorRampProfile s_heavy_profile = {
+    .start_speed = HEAVY_START_SPEED,
+    .ramp_ms     = HEAVY_RAMP_MS,
+    .ramp_step   = HEAVY_RAMP_STEP
+};
 
 // ===== Приватні функції =====
 
@@ -28,13 +42,21 @@ static void motor_limit_stop_isr(void)
     s_step_state  = false;
 }
 
-// Переводить швидкість (кроків/с) у period (мс між кроками)
-// period_ms = 1000 / speed. Мінімум 1.
+static uint16_t ms_to_ticks(uint16_t ms)
+{
+    uint32_t ticks = ((uint32_t)ms * 1000U + (TIM7_TICK_US - 1U)) / TIM7_TICK_US;
+    return (ticks == 0U) ? 1U : (uint16_t)ticks;
+}
+
+// Переводить швидкість (кроків/с) у period (тіків між кроками).
 static uint16_t speed_to_period(uint16_t speed_steps_per_sec)
 {
     if (speed_steps_per_sec == 0) return 0;
-    uint32_t p = 1000U / speed_steps_per_sec;
-    return (p < 1) ? 1 : (uint16_t)p;
+    uint32_t ticks_per_sec = 1000000U / TIM7_TICK_US;
+    uint32_t p = ticks_per_sec / speed_steps_per_sec;
+    uint32_t min_period = STEP_PULSE_TICKS + 1U;
+    if (p < min_period) p = min_period;
+    return (uint16_t)p;
 }
 
 // Встановити напрямок
@@ -45,6 +67,95 @@ static void set_direction(bool up)
     } else {
         HAL_GPIO_WritePin(DIR_GPIO_Port, DIR_Pin, GPIO_PIN_RESET);
     }
+}
+
+static uint16_t motor_start_period(uint16_t target_period, const MotorRampProfile *profile)
+{
+    uint16_t start_period = speed_to_period(profile->start_speed);
+    return (start_period < target_period) ? target_period : start_period;
+}
+
+static uint16_t motor_next_accel_timer(const MotorRampProfile *profile)
+{
+    return ms_to_ticks((profile->ramp_ms == 0U) ? 1U : profile->ramp_ms);
+}
+
+static void motor_apply_profile_step(const MotorRampProfile *profile)
+{
+    uint16_t step = (profile->ramp_step == 0U) ? 1U : profile->ramp_step;
+
+    if (s_period_current > s_period_target) {
+        uint16_t delta = s_period_current - s_period_target;
+        s_period_current -= (delta > step) ? step : delta;
+        s_step_period = s_period_current;
+    } else if (s_period_current < s_period_target) {
+        uint16_t delta = s_period_target - s_period_current;
+        s_period_current += (delta > step) ? step : delta;
+        s_step_period = s_period_current;
+    }
+}
+
+static void motor_command(MotorState next_state, bool up, uint16_t speed, const MotorRampProfile *profile)
+{
+    if (s_state == MOTOR_ERROR) return;
+    if (up ? motor_is_limit_top() : motor_is_limit_bot()) return;
+
+    uint16_t target = speed_to_period(speed);
+    if (target == 0) return;
+
+    set_direction(up);
+
+    __disable_irq();
+    if (s_state == next_state) {
+        s_period_target = target;
+        s_burst_steps   = 0;
+
+        // Якщо оператор зменшив швидкість, не скидаємо ramp, а м'яко переходимо на новий target.
+        if (s_period_current == 0) {
+            s_period_current = motor_start_period(target, profile);
+            s_step_period    = s_period_current;
+            s_step_timer     = s_step_period;
+        }
+        if (s_accel_timer == 0) {
+            s_accel_timer = motor_next_accel_timer(profile);
+        }
+    } else {
+        s_period_target  = target;
+        s_period_current = motor_start_period(target, profile);
+        s_step_period    = s_period_current;
+        s_step_timer     = s_step_period;
+        s_accel_timer    = motor_next_accel_timer(profile);
+        s_burst_steps    = 0;
+        s_state          = next_state;
+        STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;
+        s_step_state     = false;
+    }
+    __enable_irq();
+}
+
+static void motor_start_burst(MotorState next_state, bool up, uint16_t speed, uint16_t steps, const MotorRampProfile *profile)
+{
+    if (steps == 0U) return;
+    if (s_state == MOTOR_ERROR) return;
+    if (up ? motor_is_limit_top() : motor_is_limit_bot()) return;
+
+    uint16_t target = speed_to_period(speed);
+    if (target == 0) return;
+
+    set_direction(up);
+
+    __disable_irq();
+    s_period_target  = target;
+    s_period_current = motor_start_period(target, profile);
+    s_step_period    = s_period_current;
+    s_step_timer     = s_step_period;
+    s_accel_timer    = motor_next_accel_timer(profile);
+    s_burst_steps    = steps;
+    s_state          = next_state;
+    STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;
+    s_step_state     = false;
+    s_pulse_timer    = 0;
+    __enable_irq();
 }
 
 // ===== Публічні функції =====
@@ -61,6 +172,8 @@ void motor_init(void)
     s_step_state     = false;
     s_period_target  = 0;
     s_period_current = 0;
+    s_pulse_timer    = 0;
+    s_burst_steps    = 0;
 }
 
 void motor_clear_error(void)
@@ -74,45 +187,22 @@ void motor_clear_error(void)
 
 void motor_move_up(uint16_t speed)
 {
-    if (s_state == MOTOR_ERROR) return;
-    if (motor_is_limit_top()) return;
-
-    set_direction(true);
-
-    uint16_t target = speed_to_period(speed);
-    // Стартуємо з повільного (прискорення): period = max(target, period_start)
-    uint16_t start_period = speed_to_period(50);  // 50 кроків/с — старт
-    if (start_period < target) start_period = target;
-
-    __disable_irq();
-    s_period_target  = target;
-    s_period_current = start_period;
-    s_step_period    = start_period;
-    s_step_timer     = start_period;
-    s_accel_timer    = 5;  // оновлювати прискорення кожні 5 мс
-    s_state          = MOTOR_MOVING_UP;
-    __enable_irq();
+    motor_command(MOTOR_MOVING_UP, true, speed, &s_heavy_profile);
 }
 
 void motor_move_down(uint16_t speed)
 {
-    if (s_state == MOTOR_ERROR) return;
-    if (motor_is_limit_bot()) return;
+    motor_command(MOTOR_MOVING_DOWN, false, speed, &s_heavy_profile);
+}
 
-    set_direction(false);
+void motor_burst_up(uint16_t speed, uint16_t steps)
+{
+    motor_start_burst(MOTOR_MOVING_UP, true, speed, steps, &s_heavy_profile);
+}
 
-    uint16_t target = speed_to_period(speed);
-    uint16_t start_period = speed_to_period(50);
-    if (start_period < target) start_period = target;
-
-    __disable_irq();
-    s_period_target  = target;
-    s_period_current = start_period;
-    s_step_period    = start_period;
-    s_step_timer     = start_period;
-    s_accel_timer    = 5;
-    s_state          = MOTOR_MOVING_DOWN;
-    __enable_irq();
+void motor_burst_down(uint16_t speed, uint16_t steps)
+{
+    motor_start_burst(MOTOR_MOVING_DOWN, false, speed, steps, &s_heavy_profile);
 }
 
 void motor_nudge_up(uint16_t speed)
@@ -127,6 +217,7 @@ void motor_nudge_up(uint16_t speed)
     s_period_target  = period;
     s_period_current = period;
     s_step_period    = period;
+    s_burst_steps    = 0;
     // Не скидаємо s_step_timer якщо вже рухаємось вгору — уникаємо стрибка
     if (s_state != MOTOR_MOVING_UP) s_step_timer = period;
     s_accel_timer    = 0;
@@ -146,6 +237,7 @@ void motor_nudge_down(uint16_t speed)
     s_period_target  = period;
     s_period_current = period;
     s_step_period    = period;
+    s_burst_steps    = 0;
     if (s_state != MOTOR_MOVING_DOWN) s_step_timer = period;
     s_accel_timer    = 0;
     s_state          = MOTOR_MOVING_DOWN;
@@ -160,6 +252,8 @@ void motor_stop(void)
     // Залишаємо STEP LOW
     HAL_GPIO_WritePin(STEP_GPIO_Port, STEP_Pin, GPIO_PIN_RESET);
     s_step_state = false;
+    s_pulse_timer = 0;
+    s_burst_steps = 0;
     __enable_irq();
 }
 
@@ -170,11 +264,21 @@ void motor_emergency_stop(void)
     s_state       = MOTOR_ERROR;
     STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;  // STEP = LOW (атомарно)
     s_step_state = false;
+    s_pulse_timer = 0;
+    s_burst_steps = 0;
 }
 
-// Викликати з TIM7 IRQ (кожну 1 мс)
+// Викликати з TIM7 IRQ (кожен TIM7_TICK_US)
 void motor_tim_tick(void)
 {
+    if (s_pulse_timer > 0) {
+        s_pulse_timer--;
+        if (s_pulse_timer == 0U) {
+            STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;  // STEP = LOW
+            s_step_state = false;
+        }
+    }
+
     if (s_step_period == 0) return;
 
     // Перевірка концевиків у ISR — зупиняє з IDLE (рух у протилежний бік дозволений)
@@ -187,37 +291,37 @@ void motor_tim_tick(void)
         return;
     }
 
-    // Прискорення: поступово зменшуємо period до target
+    // Плавно підтягуємо current period до target без перезапуску руху.
     if (s_accel_timer > 0) {
         s_accel_timer--;
     } else {
-        s_accel_timer = 5;
-        if (s_period_current > s_period_target) {
-            s_period_current--;
-            s_step_period = s_period_current;
-        }
+        s_accel_timer = motor_next_accel_timer(&s_heavy_profile);
+        motor_apply_profile_step(&s_heavy_profile);
     }
 
-    // Генерація STEP
+    // Генерація STEP: передній фронт = один крок, HIGH тримаємо STEP_PULSE_TICKS тікiв.
     if (s_step_timer > 0) {
         s_step_timer--;
     } else {
         s_step_timer = s_step_period;
-
         if (!s_step_state) {
-            // Передній фронт — рахуємо крок
             STEP_GPIO_Port->BSRR = STEP_Pin;  // STEP = HIGH
             s_step_state = true;
+            s_pulse_timer = STEP_PULSE_TICKS;
 
             if (s_state == MOTOR_MOVING_UP) {
                 s_step_pos++;
             } else if (s_state == MOTOR_MOVING_DOWN) {
                 s_step_pos--;
             }
-        } else {
-            // Задній фронт
-            STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;  // STEP = LOW
-            s_step_state = false;
+
+            if (s_burst_steps > 0) {
+                s_burst_steps--;
+                if (s_burst_steps == 0U) {
+                    s_step_period = 0;
+                    s_state = MOTOR_IDLE;
+                }
+            }
         }
     }
 }
@@ -250,6 +354,11 @@ bool motor_is_limit_bot(void)
 bool motor_is_running(void)
 {
     return (s_state == MOTOR_MOVING_UP || s_state == MOTOR_MOVING_DOWN);
+}
+
+bool motor_is_burst_active(void)
+{
+    return s_burst_steps > 0U;
 }
 
 float motor_get_position_mm(void)

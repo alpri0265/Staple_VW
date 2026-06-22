@@ -64,7 +64,8 @@ MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
 CCMRAM (xrw)      : ORIGIN = 0x10000000, LENGTH = 64K
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 512K
+/* Reserve the last 128K sector (0x08060000-0x0807FFFF) for flash_save() EEPROM data. */
+FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 384K
 }
 
 /* Define output sections */
@@ -224,5 +225,4 @@ SECTIONS
   }
 
 }
-
 

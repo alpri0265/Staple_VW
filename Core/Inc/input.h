@@ -11,9 +11,9 @@ void   input_enc_isr(void);          // викликати з EXTI3 ISR (ENC_CLK
 
 bool   input_joy_up(void);           // джойстик вгору (з антидребезгом)
 bool   input_joy_down(void);         // джойстик вниз
-bool   input_enc_sw_pressed(void);   // кнопка енкодера — одноразово (rising edge)
+bool   input_enc_sw_pressed(void);   // latched подія натискання, скидається після читання
 bool   input_enc_sw_held(void);      // кнопка утримана зараз
-bool   input_enc_sw_released(void);  // одноразово: кнопка щойно відпущена
+bool   input_enc_sw_released(void);  // latched подія відпускання, скидається після читання
 int8_t input_enc_get_delta(void);    // кроки енкодера з останнього виклику
 
 bool   input_stop_pressed(void);     // прапор аварійної зупинки

@@ -35,6 +35,16 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum {
+  AUTO_STATE_IDLE = 0,
+  AUTO_STATE_APPROACH,
+  AUTO_STATE_SOFT,
+  AUTO_STATE_SEEK,
+  AUTO_STATE_SETTLE,
+  AUTO_STATE_HOLD,
+  AUTO_STATE_DONE,
+  AUTO_STATE_ERROR
+} AutoState;
 
 /* USER CODE END PTD */
 
@@ -56,6 +66,9 @@ static int8_t   s_preset_idx   = -1;     // активний пресет (-1 = 
 static uint32_t s_display_tick = 0;
 static bool     s_fine_used    = false;  // ENC hold використовувався для руху мотора
 static uint32_t s_fine_tick    = 0;      // час останнього тіку енкодера у fine mode
+static AutoState s_auto_state  = AUTO_STATE_IDLE;
+static uint32_t  s_auto_deadline = 0;
+static uint16_t  s_auto_cmd_speed = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,6 +79,178 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static float absf_local(float x)
+{
+  return (x < 0.0f) ? -x : x;
+}
+
+static bool auto_is_active(void)
+{
+  return (s_auto_state == AUTO_STATE_APPROACH ||
+          s_auto_state == AUTO_STATE_SOFT ||
+          s_auto_state == AUTO_STATE_SEEK ||
+          s_auto_state == AUTO_STATE_SETTLE ||
+          s_auto_state == AUTO_STATE_HOLD);
+}
+
+static bool auto_is_visible(void)
+{
+  return auto_is_active() ||
+         s_auto_state == AUTO_STATE_DONE ||
+         s_auto_state == AUTO_STATE_ERROR;
+}
+
+static void auto_idle_screen(void)
+{
+  s_auto_state = AUTO_STATE_IDLE;
+  s_auto_deadline = 0;
+  s_auto_cmd_speed = 0;
+  motor_stop();
+  display_set_screen(SCREEN_AUTO);
+}
+
+static void auto_reset(void)
+{
+  s_auto_state = AUTO_STATE_IDLE;
+  s_auto_deadline = 0;
+  s_auto_cmd_speed = 0;
+  display_set_screen(SCREEN_MAIN);
+}
+
+static void auto_start_cycle(void)
+{
+  motor_stop();
+  s_fine_used = false;
+  s_auto_state = AUTO_STATE_APPROACH;
+  s_auto_deadline = 0;
+  s_auto_cmd_speed = 0;
+  display_set_screen(SCREEN_AUTO);
+}
+
+static uint16_t auto_select_burst_steps(float err_kg)
+{
+  if (err_kg > AUTO_BURST_LARGE_ERR_KG) return AUTO_BURST_LARGE_STEPS;
+  if (err_kg > AUTO_BURST_MED_ERR_KG)   return AUTO_BURST_MED_STEPS;
+  return AUTO_BURST_SMALL_STEPS;
+}
+
+static void auto_update(float force, DisplayMotionMode *motion_mode, uint16_t *motion_speed)
+{
+  float err_kg = s_target_kg - force;
+
+  switch (s_auto_state) {
+    case AUTO_STATE_APPROACH:
+      *motion_mode = DISPLAY_MODE_APPROACH;
+      *motion_speed = SPEED_APPROACH;
+      s_auto_cmd_speed = SPEED_APPROACH;
+
+      if (err_kg <= AUTO_CRUISE_ENTRY_KG || force >= APPROACH_SOFT_KG) {
+        motor_stop();
+        s_auto_state = AUTO_STATE_SOFT;
+      } else {
+        motor_move_up(SPEED_APPROACH);
+      }
+      break;
+
+    case AUTO_STATE_SOFT:
+      *motion_mode = DISPLAY_MODE_SOFT;
+      *motion_speed = SPEED_APPROACH_SOFT;
+      s_auto_cmd_speed = SPEED_APPROACH_SOFT;
+
+      if (err_kg <= AUTO_CRUISE_ENTRY_KG || force >= APPROACH_CONTACT_KG) {
+        motor_stop();
+        s_auto_state = AUTO_STATE_SEEK;
+      } else {
+        motor_move_up(SPEED_APPROACH_SOFT);
+      }
+      break;
+
+    case AUTO_STATE_SEEK:
+      *motion_mode = DISPLAY_MODE_ASEEK;
+      *motion_speed = s_auto_cmd_speed;
+
+      if (force > (s_target_kg + AUTO_FORCE_TOLERANCE_KG)) {
+        motor_stop();
+        s_auto_state = AUTO_STATE_ERROR;
+        display_show_error("AUTO overshoot");
+        break;
+      }
+
+      if (absf_local(err_kg) <= AUTO_FORCE_TOLERANCE_KG) {
+        motor_stop();
+        s_auto_state = AUTO_STATE_HOLD;
+        s_auto_deadline = HAL_GetTick() + AUTO_HOLD_MS;
+        *motion_mode = DISPLAY_MODE_HOLD;
+        *motion_speed = 0;
+        break;
+      }
+
+      if (err_kg > AUTO_CRUISE_ENTRY_KG) {
+        s_auto_cmd_speed = SPEED_PRESS;
+        *motion_speed = s_auto_cmd_speed;
+        motor_move_up(SPEED_PRESS);
+      } else {
+        uint16_t burst_steps = auto_select_burst_steps(err_kg);
+        s_auto_cmd_speed = SPEED_PRESS;
+        *motion_speed = s_auto_cmd_speed;
+        motor_burst_up(SPEED_PRESS, burst_steps);
+        s_auto_state = AUTO_STATE_SETTLE;
+        s_auto_deadline = 0;
+      }
+      break;
+
+    case AUTO_STATE_SETTLE:
+      *motion_mode = DISPLAY_MODE_ASEEK;
+      *motion_speed = 0;
+
+      if (motor_is_running() || motor_is_burst_active()) {
+        *motion_speed = s_auto_cmd_speed;
+        break;
+      }
+
+      if (s_auto_deadline == 0U) {
+        s_auto_deadline = HAL_GetTick() + AUTO_SETTLE_MS;
+      } else if (HAL_GetTick() >= s_auto_deadline) {
+        s_auto_deadline = 0;
+        s_auto_state = AUTO_STATE_SEEK;
+      }
+      break;
+
+    case AUTO_STATE_HOLD:
+      *motion_mode = DISPLAY_MODE_HOLD;
+      *motion_speed = 0;
+
+      if (force > (s_target_kg + AUTO_FORCE_TOLERANCE_KG)) {
+        s_auto_state = AUTO_STATE_ERROR;
+        display_show_error("AUTO overshoot");
+      } else if ((s_target_kg - force) > AUTO_FORCE_TOLERANCE_KG) {
+        s_auto_state = AUTO_STATE_SEEK;
+      } else if (HAL_GetTick() >= s_auto_deadline) {
+        s_auto_state = AUTO_STATE_DONE;
+        s_auto_deadline = HAL_GetTick() + AUTO_DONE_MS;
+      }
+      break;
+
+    case AUTO_STATE_DONE:
+      *motion_mode = DISPLAY_MODE_DONE;
+      *motion_speed = 0;
+      if (HAL_GetTick() >= s_auto_deadline) {
+        auto_reset();
+      }
+      break;
+
+    case AUTO_STATE_ERROR:
+      *motion_mode = DISPLAY_MODE_IDLE;
+      *motion_speed = 0;
+      break;
+
+    case AUTO_STATE_IDLE:
+    default:
+      *motion_mode = DISPLAY_MODE_IDLE;
+      *motion_speed = 0;
+      break;
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -139,12 +324,18 @@ int main(void)
     motor_update();
 
     float force = loadcell_get_kg();
+    float force_fast = loadcell_get_fast_kg();
     int8_t enc_delta = input_enc_get_delta();
     DisplayScreen cur_screen = display_get_screen();
+    DisplayMotionMode motion_mode = DISPLAY_MODE_IDLE;
+    uint16_t motion_speed = 0;
+    bool joy_up = input_joy_up();
+    bool joy_down = input_joy_down();
 
     // --- Кнопка СТОП ---
     if (input_stop_pressed()) {
       input_stop_clear();
+      auto_reset();
       if (cur_screen == SCREEN_ERROR) {
         motor_clear_error();
         display_set_screen(SCREEN_MAIN);
@@ -159,67 +350,91 @@ int main(void)
     // --- HX711 timeout → аварія ---
     if (loadcell_has_error() && motor_is_running()) {
       motor_stop();
+      auto_reset();
       display_show_error("HX711 no response");
     }
 
     // --- Логіка по екранах ---
-    if (cur_screen == SCREEN_MAIN) {
+    if (cur_screen == SCREEN_MAIN || cur_screen == SCREEN_AUTO) {
 
       // Безпека: захист по зусиллю
       if (motor_is_running()) {
         if (force >= s_target_kg * OVERLOAD_FACTOR) {
           motor_emergency_stop();
+          auto_reset();
           display_show_error("OVERLOAD!");
         } else if (force >= s_target_kg) {
           motor_stop();
         }
       }
 
-      // Джойстик керує двигуном (пріоритет над ENC fine mode)
-      bool joy_up   = input_joy_up();
-      bool joy_down = input_joy_down();
-      bool enc_held = input_enc_sw_held();
+      if (cur_screen == SCREEN_AUTO && joy_down && auto_is_visible()) {
+        auto_idle_screen();
+      } else if (cur_screen == SCREEN_AUTO && joy_up && !auto_is_visible()) {
+        auto_start_cycle();
+      } else if (auto_is_active() || s_auto_state == AUTO_STATE_DONE) {
+        auto_update(force_fast, &motion_mode, &motion_speed);
+      } else {
+        // Джойстик керує двигуном (пріоритет над ENC fine mode)
+        bool enc_held = input_enc_sw_held();
 
-      if (joy_up && !motor_is_limit_top()) {
-        uint16_t spd = (force >= s_target_kg * SLOWDOWN_THRESHOLD) ? SPEED_SLOW : SPEED_FAST;
-        motor_move_up(spd);
-      } else if (joy_down && !motor_is_limit_bot()) {
-        uint16_t spd = (force >= s_target_kg * SLOWDOWN_THRESHOLD) ? SPEED_SLOW : SPEED_FAST;
-        motor_move_down(spd);
-      } else if (!joy_up && !joy_down && !enc_held && motor_is_running()) {
-        motor_stop();
-      }
-
-      // Тонка підстройка: ENC утримано + обертання → рух мотора без розгону
-      if (enc_held && !joy_up && !joy_down) {
-        if (enc_delta > 0 && !motor_is_limit_top()) {
-          motor_nudge_up(SPEED_ENC);
-          s_fine_tick = HAL_GetTick();
-          s_fine_used = true;
-        } else if (enc_delta < 0 && !motor_is_limit_bot()) {
-          motor_nudge_down(SPEED_ENC);
-          s_fine_tick = HAL_GetTick();
-          s_fine_used = true;
-        } else if (s_fine_used && (HAL_GetTick() - s_fine_tick) >= FINE_TIMEOUT_MS) {
+        if (cur_screen == SCREEN_MAIN && joy_up && !motor_is_limit_top()) {
+          uint16_t spd;
+          if (force < APPROACH_SOFT_KG) {
+            spd = SPEED_APPROACH;
+            motion_mode = DISPLAY_MODE_APPROACH;
+          } else if (force < APPROACH_CONTACT_KG) {
+            spd = SPEED_APPROACH_SOFT;
+            motion_mode = DISPLAY_MODE_SOFT;
+          } else {
+            spd = SPEED_PRESS;
+            motion_mode = DISPLAY_MODE_PRESS;
+          }
+          motion_speed = spd;
+          motor_move_up(spd);
+        } else if (cur_screen == SCREEN_MAIN && joy_down && !motor_is_limit_bot()) {
+          motion_mode = DISPLAY_MODE_RETRACT;
+          motion_speed = SPEED_FAST;
+          motor_move_down(motion_speed);
+        } else if (!joy_up && !joy_down && !enc_held && motor_is_running()) {
           motor_stop();
         }
-      }
 
-      // ENC відпущено: якщо fine mode не використовувався → меню
-      if (input_enc_sw_released()) {
-        if (s_fine_used) {
-          motor_stop();
-        } else {
-          display_set_screen(SCREEN_MENU);
+        // Тонка підстройка: ENC утримано + обертання → рух мотора без розгону
+        if (cur_screen == SCREEN_MAIN && enc_held && !joy_up && !joy_down) {
+          if (enc_delta > 0 && !motor_is_limit_top()) {
+            motion_mode = DISPLAY_MODE_FINE;
+            motion_speed = SPEED_ENC;
+            motor_nudge_up(SPEED_ENC);
+            s_fine_tick = HAL_GetTick();
+            s_fine_used = true;
+          } else if (enc_delta < 0 && !motor_is_limit_bot()) {
+            motion_mode = DISPLAY_MODE_FINE;
+            motion_speed = SPEED_ENC;
+            motor_nudge_down(SPEED_ENC);
+            s_fine_tick = HAL_GetTick();
+            s_fine_used = true;
+          } else if (s_fine_used && (HAL_GetTick() - s_fine_tick) >= FINE_TIMEOUT_MS) {
+            motor_stop();
+          }
         }
-        s_fine_used = false;
-      }
 
-      // Енкодер змінює задане зусилля тільки якщо ENC не утримано
-      if (!enc_held && enc_delta != 0) {
-        s_target_kg += (float)enc_delta * FORCE_STEP_KG;
-        if (s_target_kg < FORCE_STEP_KG)  s_target_kg = FORCE_STEP_KG;
-        if (s_target_kg > FORCE_MAX_KG)   s_target_kg = FORCE_MAX_KG;
+        // ENC відпущено: якщо fine mode не використовувався → меню
+        if (input_enc_sw_released()) {
+          if (s_fine_used) {
+            motor_stop();
+          } else {
+            display_set_screen(SCREEN_MENU);
+          }
+          s_fine_used = false;
+        }
+
+        // Енкодер змінює задане зусилля тільки якщо ENC не утримано
+        if (!enc_held && enc_delta != 0) {
+          s_target_kg += (float)enc_delta * FORCE_STEP_KG;
+          if (s_target_kg < FORCE_STEP_KG)  s_target_kg = FORCE_STEP_KG;
+          if (s_target_kg > FORCE_MAX_KG)   s_target_kg = FORCE_MAX_KG;
+        }
       }
 
       // Оновити дисплей ~10 Гц, передаємо значення в кН
@@ -227,6 +442,12 @@ int main(void)
         s_display_tick = HAL_GetTick();
         display_set_force(loadcell_get_kN(), s_target_kg / KN_TO_KG);
       }
+
+      display_set_motion_mode(motion_mode);
+      display_set_motion_speed(motion_speed);
+      display_set_auto_metrics(loadcell_get_fast_kN(),
+                               s_target_kg / KN_TO_KG,
+                               (loadcell_get_fast_kg() - s_target_kg) / KN_TO_KG);
 
     } else if (cur_screen == SCREEN_MENU) {
 
@@ -236,7 +457,7 @@ int main(void)
       if (input_enc_sw_pressed()) {
         uint8_t item = display_menu_get_item();
         switch (item) {
-          case 0: display_set_screen(SCREEN_MAIN); break;
+          case 0: auto_idle_screen(); break;
           case 1: display_set_screen(SCREEN_PRESET); break;
           case 2: calib_start(s_target_kg); break;
           case 3: display_set_screen(SCREEN_SETTINGS); break;
