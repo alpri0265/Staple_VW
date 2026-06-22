@@ -17,6 +17,10 @@ static volatile uint16_t    s_period_target = 0;     // цільовий period 
 static volatile uint16_t    s_period_current = 0;    // поточний period
 static volatile uint16_t    s_accel_timer  = 0;      // мс до наступного кроку прискорення
 
+// Джог з підрахунком кроків (для точного кроку енкодера)
+static volatile uint16_t    s_jog_remaining    = 0;  // залишилось кроків до авто-зупинки
+static volatile bool        s_jog_stop_pending = false; // зупинити після наступного LOW
+
 // ===== Приватні функції =====
 
 // Зупинка при спрацюванні концевика — ISR-safe, встановлює IDLE (рух у протилежний бік дозволений)
@@ -75,8 +79,7 @@ void motor_clear_error(void)
 void motor_move_up(uint16_t speed)
 {
     if (s_state == MOTOR_ERROR) return;
-    if (motor_is_limit_top()) return;
-
+    // Кінцевик перевіряється в TIM7 ISR кожні 100 мкс — не блокуємо тут
     set_direction(true);
     uint16_t target = speed_to_period(speed);
 
@@ -127,8 +130,6 @@ void motor_move_down(uint16_t speed)
 void motor_nudge_up(uint16_t speed)
 {
     if (s_state == MOTOR_ERROR) return;
-    if (motor_is_limit_top()) return;
-
     set_direction(true);
     uint16_t period = speed_to_period(speed);
 
@@ -174,9 +175,9 @@ void motor_stop(void)
 
 void motor_emergency_stop(void)
 {
-    // Викликається з ISR — без disable_irq
+    // Викликається з ISR — без disable_irq, не блокує мотор у стані ERROR
     s_step_period = 0;
-    s_state       = MOTOR_ERROR;
+    s_state       = MOTOR_IDLE;
     STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;  // STEP = LOW (атомарно)
     s_step_state = false;
 }
@@ -223,10 +224,24 @@ void motor_tim_tick(void)
             } else if (s_state == MOTOR_MOVING_DOWN) {
                 s_step_pos--;
             }
+
+            // Джог: декрементуємо лічильник, зупинка заплановується після LOW
+            if (s_jog_remaining > 0) {
+                if (--s_jog_remaining == 0) {
+                    s_jog_stop_pending = true;
+                }
+            }
         } else {
             // Задній фронт
             STEP_GPIO_Port->BSRR = (uint32_t)STEP_Pin << 16U;  // STEP = LOW
             s_step_state = false;
+
+            // Зупинка після останнього кроку (LOW завершено)
+            if (s_jog_stop_pending) {
+                s_jog_stop_pending = false;
+                s_step_period = 0;
+                s_state       = MOTOR_IDLE;
+            }
         }
     }
 }
@@ -281,4 +296,26 @@ void motor_reset_position(void)
 MotorState motor_get_state(void)
 {
     return s_state;
+}
+
+// Рухатися рівно n_steps кроків, потім авто-зупинка (без розгону)
+void motor_jog_steps(bool up, uint16_t n_steps, uint16_t speed)
+{
+    if (s_state == MOTOR_ERROR) return;
+    if (n_steps == 0) return;
+    if (!up && motor_is_limit_bot()) return;
+
+    set_direction(up);
+    uint16_t period = speed_to_period(speed);
+
+    __disable_irq();
+    s_jog_remaining    = n_steps;
+    s_jog_stop_pending = false;
+    s_period_target    = period;
+    s_period_current   = period;
+    s_step_period      = period;
+    s_step_timer       = period;
+    s_accel_timer      = 0;
+    s_state = up ? MOTOR_MOVING_UP : MOTOR_MOVING_DOWN;
+    __enable_irq();
 }

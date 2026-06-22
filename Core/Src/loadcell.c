@@ -2,7 +2,7 @@
 #include "main.h"
 #include "config.h"
 
-#define AVG_SAMPLES  8
+#define AVG_SAMPLES  3
 
 // ===== Стан модуля =====
 static float   s_scale        = 1.0f;

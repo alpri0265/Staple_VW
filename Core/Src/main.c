@@ -38,7 +38,11 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef enum {
+    AUTO_IDLE = 0,   // пресет вибрано, очікуємо джойстик
+    AUTO_PRESSING,   // рухаємось вниз до brake_point
+    AUTO_HOLDING     // досягли цілі, ручне управління в [min, max]
+} AutoState_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -55,14 +59,28 @@
 
 /* USER CODE BEGIN PV */
 static float    s_target_kg    = FORCE_DEFAULT_KG;
-static int8_t   s_preset_idx   = -1;     // активний пресет (-1 = не вибрано)
+static int8_t   s_preset_idx   = -1;
 static uint32_t s_display_tick = 0;
-static bool     s_fine_used    = false;  // ENC hold використовувався для руху мотора
-static uint32_t s_fine_tick    = 0;      // час останнього тіку енкодера у fine mode
+static bool     s_fine_used    = false;
+static uint32_t s_fine_tick    = 0;
 
-// Кутовий енкодер: антидребезг кнопки ZERO (PD4)
-static uint32_t s_zero_btn_tick    = 0;
-static bool     s_zero_btn_last    = false;  // попередній стан кнопки
+static uint32_t s_zero_btn_tick = 0;
+static bool     s_zero_btn_last = false;
+
+// Редактор пресету
+static PresetEditStep_t s_pedit_step   = PEDIT_INJ;
+static uint8_t          s_pedit_inj    = 0;
+static uint8_t          s_pedit_op     = 0;
+static float            s_pedit_fmin   = 8.5f;
+static float            s_pedit_fmax   = 9.0f;
+static int8_t           s_pedit_idx    = -1;   // -1 = новий, >=0 = редагування
+
+// Довге натискання ENC у SCREEN_PRESET
+static uint32_t s_preset_hold_tick  = 0;
+static bool     s_preset_long_fired = false;
+
+// Стан авторежиму (замість двох bool-прапорів)
+static AutoState_t s_auto_state = AUTO_IDLE;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -108,6 +126,26 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
+
+  // Відновлення I2C шини: 9 тактів SCL щоб розблокувати PCF8574 після зависання.
+  // Дозволяє відновити роботу кнопкою RESET замість зняттям живлення.
+  HAL_I2C_DeInit(&hi2c1);
+  {
+    GPIO_InitTypeDef i2c_gpio = {0};
+    i2c_gpio.Pin   = GPIO_PIN_6;        // PB6 = I2C1_SCL
+    i2c_gpio.Mode  = GPIO_MODE_OUTPUT_OD;
+    i2c_gpio.Pull  = GPIO_NOPULL;
+    i2c_gpio.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &i2c_gpio);
+    for (int i = 0; i < 10; i++) {
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+      HAL_Delay(1);
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+      HAL_Delay(1);
+    }
+  }
+  MX_I2C1_Init();  // повторна ініціалізація I2C після відновлення шини
+
   motor_init();
   loadcell_init();
   input_init();
@@ -154,21 +192,24 @@ int main(void)
     input_update();
     motor_update();
 
-    float force = loadcell_get_kg();
+    float force    = loadcell_get_kg();
+    float force_kN = force / KN_TO_KG;
     int8_t enc_delta = input_enc_get_delta();
     DisplayScreen cur_screen = display_get_screen();
 
     // --- Кнопка СТОП ---
     if (input_stop_pressed()) {
       input_stop_clear();
-      if (cur_screen == SCREEN_ERROR) {
-        motor_clear_error();
+      motor_stop();
+      motor_clear_error();
+      s_auto_state = AUTO_IDLE;
+      s_fine_used  = false;
+      if (cur_screen == SCREEN_PRESET_EDIT) {
+        display_set_screen(SCREEN_PRESET);
+        cur_screen = SCREEN_PRESET;
+      } else {
         display_set_screen(SCREEN_MAIN);
         cur_screen = SCREEN_MAIN;
-      } else {
-        s_fine_used = false;  // скидаємо fine mode при аварійній зупинці
-        display_show_error("STOP: press again");
-        cur_screen = SCREEN_ERROR;
       }
     }
 
@@ -181,72 +222,164 @@ int main(void)
     // --- Логіка по екранах ---
     if (cur_screen == SCREEN_MAIN) {
 
-      // Безпека: захист по зусиллю
-      if (motor_is_running()) {
-        if (force >= s_target_kg * OVERLOAD_FACTOR) {
-          motor_emergency_stop();
-          display_show_error("OVERLOAD!");
-        } else if (force >= s_target_kg) {
-          motor_stop();
-        }
-      }
-
-      // Джойстик керує двигуном (пріоритет над ENC fine mode)
       bool joy_up   = input_joy_up();
       bool joy_down = input_joy_down();
       bool enc_held = input_enc_sw_held();
-      bool boost    = input_boost_held();
 
-      // Boost: кнопка PC6 утримана → швидкість від потенціометра PA2
-      uint16_t joy_speed_normal = (force >= s_target_kg * SLOWDOWN_THRESHOLD)
-                                  ? SPEED_SLOW : SPEED_FAST;
-      uint16_t joy_speed = boost ? speedpot_get_speed() : joy_speed_normal;
+      // Потенціометр завжди задає швидкість подачі
+      uint16_t pot_spd = speedpot_get_speed();
 
-      if (joy_up && !motor_is_limit_top()) {
-        motor_move_up(joy_speed);
-      } else if (joy_down && !motor_is_limit_bot()) {
-        motor_move_down(joy_speed);
-      } else if (!joy_up && !joy_down && !enc_held && motor_is_running()) {
-        motor_stop();
-      }
+      bool preset_active = (s_preset_idx >= 0 &&
+                            s_preset_idx < (int8_t)g_preset_count);
 
-      // Тонка підстройка: ENC утримано + обертання → рух мотора без розгону
-      if (enc_held && !joy_up && !joy_down) {
-        if (enc_delta > 0 && !motor_is_limit_top()) {
-          motor_nudge_up(SPEED_ENC);
-          s_fine_tick = HAL_GetTick();
-          s_fine_used = true;
-        } else if (enc_delta < 0 && !motor_is_limit_bot()) {
-          motor_nudge_down(SPEED_ENC);
-          s_fine_tick = HAL_GetTick();
-          s_fine_used = true;
-        } else if (s_fine_used && (HAL_GetTick() - s_fine_tick) >= FINE_TIMEOUT_MS) {
-          motor_stop();
+      if (preset_active) {
+        // ===== АВТОРЕЖИМ =====
+        float min_kN = g_presets[s_preset_idx].force_min_kN;
+        float max_kN = g_presets[s_preset_idx].force_max_kN;
+        float mid_kN = (min_kN + max_kN) * 0.5f;
+        float brake_point = mid_kN - BRAKE_KN;
+        if (brake_point < min_kN) brake_point = min_kN;
+
+        switch (s_auto_state) {
+
+          case AUTO_IDLE:
+            // Очікуємо джойстик DOWN → починаємо пресування
+            // Joy UP дозволений — знімаємо залишкове навантаження
+            if (joy_down && !motor_is_limit_bot()) {
+              s_auto_state = AUTO_PRESSING;
+            }
+            if (joy_up) {
+              motor_move_up(pot_spd);
+            } else if (!joy_up && motor_is_running()) {
+              motor_stop();
+            }
+            display_set_status("AUTO:IDLE  [v]=start");
+            break;
+
+          case AUTO_PRESSING:
+            // Три ступені швидкості для точної авто-зупинки
+            {
+              uint16_t spd;
+              if (force_kN >= mid_kN * PRESET_ENC_THRESHOLD) {
+                spd = SPEED_ENC;
+              } else if (force_kN >= mid_kN * PRESET_SLOW_THRESHOLD) {
+                spd = SPEED_SLOW;
+              } else {
+                spd = pot_spd;
+              }
+
+              if (joy_up) {
+                // Оператор скасував — зупинити і повернутись в IDLE
+                motor_stop();
+                s_auto_state = AUTO_IDLE;
+              } else if (joy_down && !motor_is_limit_bot()) {
+                motor_move_down(spd);
+              } else if (!joy_down && motor_is_running()) {
+                // Відпустив джойстик до цілі — зупинити і повернутись в IDLE
+                motor_stop();
+                s_auto_state = AUTO_IDLE;
+              }
+
+              // Авто-зупинка: brake_point = mid - BRAKE_KN
+              if (force_kN >= brake_point) {
+                motor_stop();
+                s_auto_state = AUTO_HOLDING;
+              }
+            }
+            display_set_status("AUTO:PRESS [^]=cncl ");
+            break;
+
+          case AUTO_HOLDING:
+            // Joy UP: знімаємо навантаження; коли відпустили → IDLE
+            // Joy DOWN: дотиснути повільно (в межах [mid, max])
+            // Encoder: точне підлаштування
+            {
+              MotorState ms = motor_get_state();
+              if (joy_up) {
+                motor_move_up(pot_spd);
+              } else if (joy_down && !motor_is_limit_bot()) {
+                motor_move_down(SPEED_ENC);
+              } else if (!joy_up && !joy_down && motor_is_running()) {
+                motor_stop();
+                // Якщо рухались вгору (знімали навантаження) → IDLE
+                if (ms == MOTOR_MOVING_UP) {
+                  s_auto_state = AUTO_IDLE;
+                }
+              }
+
+              if (!enc_held && enc_delta != 0) {
+                uint16_t n = (uint16_t)(enc_delta > 0 ? enc_delta : -enc_delta) * ENC_JOG_STEPS;
+                if (enc_delta > 0) {
+                  motor_jog_steps(true, n, SPEED_ENC);  // вгору — менше зусилля
+                } else {
+                  motor_jog_steps(false, n, SPEED_ENC); // вниз — більше зусилля
+                }
+              }
+            }
+            display_set_status("AUTO:HOLD  ENC=fine ");
+            break;
         }
-      }
 
-      // ENC відпущено: якщо fine mode не використовувався → меню
-      if (input_enc_sw_released()) {
-        if (s_fine_used) {
+        // ENC відпущено → меню (з будь-якого стану)
+        if (input_enc_sw_released()) {
           motor_stop();
-        } else {
+          s_auto_state = AUTO_IDLE;
           display_set_screen(SCREEN_MENU);
+          s_fine_used = false;
         }
-        s_fine_used = false;
+
+      } else {
+        // ===== РУЧНИЙ РЕЖИМ (пресет не вибрано) =====
+        display_set_status("MANUAL  [^v] ENC=tgt");
+
+        if (motor_is_running() && force >= s_target_kg) {
+          motor_stop();
+        }
+
+        // Уповільнення при наближенні до заданого зусилля
+        uint16_t joy_speed = (force >= s_target_kg * SLOWDOWN_THRESHOLD)
+                              ? SPEED_SLOW : pot_spd;
+
+        if (joy_up) {
+          motor_move_up(joy_speed);
+        } else if (joy_down && !motor_is_limit_bot()) {
+          motor_move_down(joy_speed);
+        } else if (!joy_up && !joy_down && !enc_held && motor_is_running()) {
+          motor_stop();
+        }
+
+        if (enc_held && !joy_up && !joy_down) {
+          if (enc_delta > 0) {
+            motor_nudge_up(SPEED_ENC);
+            s_fine_tick = HAL_GetTick();
+            s_fine_used = true;
+          } else if (enc_delta < 0 && !motor_is_limit_bot()) {
+            motor_nudge_down(SPEED_ENC);
+            s_fine_tick = HAL_GetTick();
+            s_fine_used = true;
+          } else if (s_fine_used && (HAL_GetTick() - s_fine_tick) >= FINE_TIMEOUT_MS) {
+            motor_stop();
+          }
+        }
+
+        if (input_enc_sw_released()) {
+          if (s_fine_used) { motor_stop(); }
+          else             { display_set_screen(SCREEN_MENU); }
+          s_fine_used = false;
+        }
+
+        // Енкодер змінює задане зусилля
+        if (!enc_held && enc_delta != 0) {
+          s_target_kg += (float)enc_delta * FORCE_STEP_KG;
+          if (s_target_kg < FORCE_STEP_KG) s_target_kg = FORCE_STEP_KG;
+          if (s_target_kg > FORCE_MAX_KG)  s_target_kg = FORCE_MAX_KG;
+        }
       }
 
-      // Енкодер змінює задане зусилля тільки якщо ENC не утримано
-      if (!enc_held && enc_delta != 0) {
-        s_target_kg += (float)enc_delta * FORCE_STEP_KG;
-        if (s_target_kg < FORCE_STEP_KG)  s_target_kg = FORCE_STEP_KG;
-        if (s_target_kg > FORCE_MAX_KG)   s_target_kg = FORCE_MAX_KG;
-      }
-
-      // Кнопка ZERO — антидребезг у main loop (PD4, LOW = натиснуто)
+      // Кнопка ZERO (спільна для обох режимів)
       {
         bool zero_now = (HAL_GPIO_ReadPin(ZERO_BTN_GPIO_Port, ZERO_BTN_Pin) == GPIO_PIN_RESET);
         if (zero_now && !s_zero_btn_last) {
-          // Передній фронт натискання з витримкою часу
           if ((HAL_GetTick() - s_zero_btn_tick) >= DEBOUNCE_MS) {
             torque_angle_zero();
           }
@@ -255,10 +388,10 @@ int main(void)
         s_zero_btn_last = zero_now;
       }
 
-      // Оновити дисплей ~10 Гц, передаємо значення в кН + кут
+      // Оновити дисплей ~10 Гц
       if ((HAL_GetTick() - s_display_tick) >= 100U) {
         s_display_tick = HAL_GetTick();
-        display_set_force(loadcell_get_kN(), s_target_kg / KN_TO_KG);
+        display_set_force(force_kN, s_target_kg / KN_TO_KG);
         display_set_angle(torque_angle_get_deg(),
                           torque_angle_get_target(),
                           torque_angle_is_reached());
@@ -286,16 +419,165 @@ int main(void)
 
     } else if (cur_screen == SCREEN_PRESET) {
 
-      // Навігація енкодером
-      if (enc_delta != 0) display_preset_scroll(enc_delta);
+      // Навігація енкодером — скидаємо таймер довгого натискання при прокрутці
+      if (enc_delta != 0) {
+        display_preset_scroll(enc_delta);
+        s_preset_hold_tick  = 0;
+        s_preset_long_fired = false;
+      }
 
-      // Вибір пресету — встановлює ціль і повертається до роботи
+      uint8_t idx = display_preset_get_item();
+      bool is_add_new = (idx >= g_preset_count);
+
+      // Довге натискання ENC (1 с) → режим редагування існуючого пресету
+      if (input_enc_sw_held()) {
+        if (s_preset_hold_tick == 0) {
+          s_preset_hold_tick = HAL_GetTick() | 1U;
+        } else if (!s_preset_long_fired &&
+                   (HAL_GetTick() - s_preset_hold_tick) >= 1000U) {
+          s_preset_long_fired = true;
+          if (!is_add_new) {
+            s_pedit_idx  = (int8_t)idx;
+            s_pedit_inj  = preset_find_inj_idx(g_presets[idx].inj_name);
+            s_pedit_op   = preset_find_op_idx(g_presets[idx].op_name);
+            s_pedit_fmin = g_presets[idx].force_min_kN;
+            s_pedit_fmax = g_presets[idx].force_max_kN;
+            s_pedit_step = PEDIT_INJ;
+            display_preset_edit_set(s_pedit_step, s_pedit_inj, s_pedit_op,
+                                    s_pedit_fmin, s_pedit_fmax, false);
+            display_set_screen(SCREEN_PRESET_EDIT);
+          }
+        }
+      } else {
+        s_preset_hold_tick = 0;
+      }
+
+      // Відпускання ENC → якщо не було довгого натискання
+      if (input_enc_sw_released()) {
+        if (!s_preset_long_fired) {
+          if (is_add_new) {
+            // Додати новий пресет
+            s_pedit_idx  = -1;
+            s_pedit_inj  = 0;
+            s_pedit_op   = 0;
+            s_pedit_fmin = 8.5f;
+            s_pedit_fmax = 9.0f;
+            s_pedit_step = PEDIT_INJ;
+            display_preset_edit_set(s_pedit_step, s_pedit_inj, s_pedit_op,
+                                    s_pedit_fmin, s_pedit_fmax, true);
+            display_set_screen(SCREEN_PRESET_EDIT);
+          } else {
+            // Короткий натиск → вибрати пресет і встановити ціль
+            s_target_kg  = preset_target_kg(idx);
+            s_preset_idx = (int8_t)idx;
+            s_auto_state = AUTO_IDLE;
+            display_set_active_preset(s_preset_idx);
+            display_set_screen(SCREEN_MAIN);
+          }
+        }
+        s_preset_long_fired = false;
+        s_preset_hold_tick  = 0;
+      }
+
+    } else if (cur_screen == SCREEN_PRESET_EDIT) {
+
+      // Змінюємо поточне поле енкодером
+      if (enc_delta != 0) {
+        switch (s_pedit_step) {
+          case PEDIT_INJ: {
+            int16_t v = (int16_t)s_pedit_inj + enc_delta;
+            if (v < 0) v += INJ_TYPES_COUNT;
+            if (v >= INJ_TYPES_COUNT) v -= INJ_TYPES_COUNT;
+            s_pedit_inj = (uint8_t)v;
+            break;
+          }
+          case PEDIT_OP: {
+            int16_t v = (int16_t)s_pedit_op + enc_delta;
+            if (v < 0) v += OP_TYPES_COUNT;
+            if (v >= OP_TYPES_COUNT) v -= OP_TYPES_COUNT;
+            s_pedit_op = (uint8_t)v;
+            break;
+          }
+          case PEDIT_FMIN:
+            s_pedit_fmin += (float)enc_delta * 0.1f;
+            if (s_pedit_fmin < 0.1f)   s_pedit_fmin = 0.1f;
+            if (s_pedit_fmin > 200.0f) s_pedit_fmin = 200.0f;
+            break;
+          case PEDIT_FMAX:
+            s_pedit_fmax += (float)enc_delta * 0.1f;
+            if (s_pedit_fmax < 0.1f)   s_pedit_fmax = 0.1f;
+            if (s_pedit_fmax > 200.0f) s_pedit_fmax = 200.0f;
+            break;
+          case PEDIT_CONFIRM:
+            // enc_delta < 0 → перейти до DELETE (тільки для існуючого)
+            if (enc_delta < 0 && s_pedit_idx >= 0) {
+              s_pedit_step = PEDIT_DELETE;
+            }
+            break;
+          case PEDIT_DELETE:
+            // enc_delta > 0 → повернутись до CONFIRM
+            if (enc_delta > 0) {
+              s_pedit_step = PEDIT_CONFIRM;
+            }
+            break;
+        }
+        display_preset_edit_set(s_pedit_step, s_pedit_inj, s_pedit_op,
+                                s_pedit_fmin, s_pedit_fmax, s_pedit_idx < 0);
+      }
+
+      // Натискання ENC: перейти до наступного поля або виконати дію
       if (input_enc_sw_pressed()) {
-        uint8_t idx = display_preset_get_item();
-        s_target_kg  = preset_target_kg(idx);
-        s_preset_idx = (int8_t)idx;
-        display_set_active_preset(s_preset_idx);
-        display_set_screen(SCREEN_MAIN);
+        switch (s_pedit_step) {
+          case PEDIT_INJ:
+            s_pedit_step = PEDIT_OP;
+            display_preset_edit_set(s_pedit_step, s_pedit_inj, s_pedit_op,
+                                    s_pedit_fmin, s_pedit_fmax, s_pedit_idx < 0);
+            break;
+          case PEDIT_OP:
+            s_pedit_step = PEDIT_FMIN;
+            display_preset_edit_set(s_pedit_step, s_pedit_inj, s_pedit_op,
+                                    s_pedit_fmin, s_pedit_fmax, s_pedit_idx < 0);
+            break;
+          case PEDIT_FMIN:
+            if (s_pedit_fmax < s_pedit_fmin) s_pedit_fmax = s_pedit_fmin;
+            s_pedit_step = PEDIT_FMAX;
+            display_preset_edit_set(s_pedit_step, s_pedit_inj, s_pedit_op,
+                                    s_pedit_fmin, s_pedit_fmax, s_pedit_idx < 0);
+            break;
+          case PEDIT_FMAX:
+            s_pedit_step = PEDIT_CONFIRM;
+            display_preset_edit_set(s_pedit_step, s_pedit_inj, s_pedit_op,
+                                    s_pedit_fmin, s_pedit_fmax, s_pedit_idx < 0);
+            break;
+          case PEDIT_CONFIRM:
+            // Зберегти пресет
+            if (s_pedit_idx < 0) {
+              preset_add(s_pedit_inj, s_pedit_op, s_pedit_fmin, s_pedit_fmax);
+            } else {
+              preset_set((uint8_t)s_pedit_idx, s_pedit_inj, s_pedit_op,
+                         s_pedit_fmin, s_pedit_fmax);
+            }
+            flash_save(loadcell_get_scale(), loadcell_get_offset(),
+                       s_target_kg, torque_angle_get_target());
+            display_set_screen(SCREEN_PRESET);
+            break;
+          case PEDIT_DELETE:
+            // Видалити існуючий пресет
+            if (s_pedit_idx >= 0) {
+              preset_delete((uint8_t)s_pedit_idx);
+              if (s_preset_idx == s_pedit_idx) {
+                s_preset_idx = -1;
+                display_set_active_preset(-1);
+              } else if (s_preset_idx > s_pedit_idx) {
+                s_preset_idx--;
+                display_set_active_preset(s_preset_idx);
+              }
+            }
+            flash_save(loadcell_get_scale(), loadcell_get_offset(),
+                       s_target_kg, torque_angle_get_target());
+            display_set_screen(SCREEN_PRESET);
+            break;
+        }
       }
 
     } else if (cur_screen == SCREEN_CALIBRATION) {
@@ -383,9 +665,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         motor_emergency_stop();
         input_stop_set();
     }
-    if (GPIO_Pin == ENC_CLK_Pin) {
-        input_enc_isr();
-    }
+    // ENC_CLK обробляється через polling у input_update(), не через ISR
 }
 /* USER CODE END 4 */
 

@@ -10,6 +10,14 @@ static ADC_HandleTypeDef s_hadc2;
 
 void speedpot_init(void)
 {
+    // PA2 → режим ANALOG (без CubeMX MspInit, конфігуруємо вручну)
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    GPIO_InitTypeDef gpio = {0};
+    gpio.Pin  = GPIO_PIN_2;
+    gpio.Mode = GPIO_MODE_ANALOG;
+    gpio.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &gpio);
+
     __HAL_RCC_ADC2_CLK_ENABLE();
 
     s_hadc2.Instance                   = ADC2;

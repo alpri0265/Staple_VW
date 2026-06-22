@@ -42,17 +42,24 @@ static char s_calib_lines[LCD_ROWS][LCD_COLS + 1];
 // Помилка
 static char s_error_msg[LCD_COLS + 1];
 
+// Рядок стану (AUTO:IDLE / AUTO:PRESS / AUTO:HOLD / MANUAL)
+static char s_status_line[LCD_COLS + 1];
+
 // Кутовий енкодер
 static float   s_angle_current  = 0.0f;
 static float   s_angle_target   = 90.0f;
 static bool    s_angle_reached  = false;
 static uint8_t s_blink_tick     = 0;
 
+// Rate limiter: максимум одне оновлення LCD кожні 200мс
+static uint32_t s_last_flush_ms  = 0;
+static bool     s_priority_flush = false; // true = змінився екран → дозволено без затримки
+
 // ===== PCF8574 / LCD низькорівневі функції =====
 
 static void pcf_write(uint8_t byte)
 {
-    HAL_I2C_Master_Transmit(&hi2c1, LCD_I2C_ADDR, &byte, 1, 5);
+    HAL_I2C_Master_Transmit(&hi2c1, LCD_I2C_ADDR, &byte, 1, 1);
 }
 
 static void lcd_nibble(uint8_t nibble, uint8_t flags)
@@ -134,7 +141,7 @@ static void build_screen_main(void)
     char tmp[LCD_COLS + 1];
 
     // Рядок 0: активний пресет або назва пристрою
-    if (s_active_preset >= 0 && s_active_preset < PRESET_COUNT) {
+    if (s_active_preset >= 0 && s_active_preset < (int8_t)g_preset_count) {
         const Preset_t *p = &g_presets[s_active_preset];
         char rng[8];
         format_range_kN(rng, p->force_min_kN, p->force_max_kN);
@@ -163,8 +170,8 @@ static void build_screen_main(void)
         make_line_padded(s_new_buf[2], tmp);
     }
 
-    // Рядок 3: підказки (ZERO для скидання кута)
-    make_line_padded(s_new_buf[3], "[ZERO] [^v] ENC STP");
+    // Рядок 3: поточний стан режиму (AUTO:IDLE / AUTO:PRESS / AUTO:HOLD / MANUAL)
+    make_line_padded(s_new_buf[3], s_status_line);
 }
 
 #define MENU_ITEMS 5
@@ -198,30 +205,112 @@ static void build_screen_preset(void)
 {
     make_line_padded(s_new_buf[0], "=== PRESET ===");
 
-    // Вікно прокрутки: показуємо 3 пункти, обраний завжди видимий
+    uint8_t total = g_preset_count + 1;  // останній = "+ Add New"
     uint8_t start = 0;
     if (s_preset_item > 1) {
         start = s_preset_item - 1;
-        if (start + 3 > PRESET_COUNT) {
-            start = (PRESET_COUNT > 3) ? (PRESET_COUNT - 3) : 0;
-        }
+        if ((uint8_t)(start + 3) > total)
+            start = (total > 3) ? (total - 3) : 0;
     }
 
     for (int i = 0; i < 3; i++) {
         uint8_t idx = start + (uint8_t)i;
-        if (idx >= PRESET_COUNT) {
-            make_line_padded(s_new_buf[i + 1], "");
-            continue;
-        }
-        const Preset_t *p = &g_presets[idx];
-        char rng[8];
-        format_range_kN(rng, p->force_min_kN, p->force_max_kN);
         char tmp[LCD_COLS + 1];
-        // ">[300] [Nozzle  ][8.5-9.0]"  = 1+3+1+8+7 = 20 chars
-        snprintf(tmp, sizeof(tmp), "%c%-3s %-8s%s",
-                 (idx == s_preset_item) ? '>' : ' ',
-                 p->inj_name, p->op_name, rng);
-        make_line_padded(s_new_buf[i + 1], tmp);
+        if (idx > g_preset_count) {
+            make_line_padded(s_new_buf[i + 1], "");
+        } else if (idx == g_preset_count) {
+            snprintf(tmp, sizeof(tmp), "%c + Add New",
+                     (idx == s_preset_item) ? '>' : ' ');
+            make_line_padded(s_new_buf[i + 1], tmp);
+        } else {
+            const Preset_t *p = &g_presets[idx];
+            char rng[8];
+            format_range_kN(rng, p->force_min_kN, p->force_max_kN);
+            snprintf(tmp, sizeof(tmp), "%c%-3s %-8s%s",
+                     (idx == s_preset_item) ? '>' : ' ',
+                     p->inj_name, p->op_name, rng);
+            make_line_padded(s_new_buf[i + 1], tmp);
+        }
+    }
+}
+
+// ===== Редактор пресету =====
+
+static PresetEditStep_t s_pedit_step = PEDIT_INJ;
+static uint8_t          s_pedit_inj  = 0;
+static uint8_t          s_pedit_op   = 0;
+static float            s_pedit_fmin = 8.5f;
+static float            s_pedit_fmax = 9.0f;
+static bool             s_pedit_new  = true;
+
+void display_preset_edit_set(PresetEditStep_t step,
+                              uint8_t inj_idx, uint8_t op_idx,
+                              float fmin, float fmax, bool is_new)
+{
+    s_pedit_step = step;
+    s_pedit_inj  = inj_idx;
+    s_pedit_op   = op_idx;
+    s_pedit_fmin = fmin;
+    s_pedit_fmax = fmax;
+    s_pedit_new  = is_new;
+    if (s_screen == SCREEN_PRESET_EDIT) s_dirty = true;
+}
+
+static void build_screen_preset_edit(void)
+{
+    char line[LCD_COLS + 1];
+    const char *inj = (s_pedit_inj < INJ_TYPES_COUNT) ? g_inj_types[s_pedit_inj] : "???";
+    const char *op  = (s_pedit_op  < OP_TYPES_COUNT)  ? g_op_types[s_pedit_op]   : "???";
+
+    make_line_padded(s_new_buf[0], s_pedit_new ? "=== ADD PRESET ===" : "=== EDIT PRESET ===");
+
+    switch (s_pedit_step) {
+        case PEDIT_INJ:
+            snprintf(line, sizeof(line), "INJ: < %-3s >", inj);
+            make_line_padded(s_new_buf[1], line);
+            snprintf(line, sizeof(line), "OP:    %-8s", op);
+            make_line_padded(s_new_buf[2], line);
+            make_line_padded(s_new_buf[3], "ENC=chg  BTN=next");
+            break;
+        case PEDIT_OP:
+            snprintf(line, sizeof(line), "INJ:   %-3s", inj);
+            make_line_padded(s_new_buf[1], line);
+            snprintf(line, sizeof(line), "OP:  < %-8s >", op);
+            make_line_padded(s_new_buf[2], line);
+            make_line_padded(s_new_buf[3], "ENC=chg  BTN=next");
+            break;
+        case PEDIT_FMIN:
+            snprintf(line, sizeof(line), "%-3s  %-8s", inj, op);
+            make_line_padded(s_new_buf[1], line);
+            snprintf(line, sizeof(line), "Min: < %4.1f > kN", (double)s_pedit_fmin);
+            make_line_padded(s_new_buf[2], line);
+            make_line_padded(s_new_buf[3], "ENC=chg  BTN=next");
+            break;
+        case PEDIT_FMAX:
+            snprintf(line, sizeof(line), "%-3s  %-8s", inj, op);
+            make_line_padded(s_new_buf[1], line);
+            snprintf(line, sizeof(line), "Max: < %4.1f > kN", (double)s_pedit_fmax);
+            make_line_padded(s_new_buf[2], line);
+            make_line_padded(s_new_buf[3], "ENC=chg  BTN=save");
+            break;
+        case PEDIT_CONFIRM: {
+            char rng[8];
+            format_range_kN(rng, s_pedit_fmin, s_pedit_fmax);
+            snprintf(line, sizeof(line), "%-3s %-8s %s", inj, op, rng);
+            make_line_padded(s_new_buf[1], line);
+            make_line_padded(s_new_buf[2], "BTN=Save STOP=Cncl");
+            make_line_padded(s_new_buf[3], s_pedit_new ? "" : "ENC left = Delete");
+            break;
+        }
+        case PEDIT_DELETE: {
+            char rng[8];
+            format_range_kN(rng, s_pedit_fmin, s_pedit_fmax);
+            snprintf(line, sizeof(line), "%-3s %-8s %s", inj, op, rng);
+            make_line_padded(s_new_buf[1], line);
+            make_line_padded(s_new_buf[2], "DELETE preset?");
+            make_line_padded(s_new_buf[3], "BTN=YES  ENC=back");
+            break;
+        }
     }
 }
 
@@ -281,24 +370,39 @@ void display_init(void)
     memset(s_new_buf,     0, sizeof(s_new_buf));
     memset(s_calib_lines, 0, sizeof(s_calib_lines));
     memset(s_error_msg,   0, sizeof(s_error_msg));
+    strncpy(s_status_line, "MANUAL  [^v] ENC STP", LCD_COLS);
+    s_status_line[LCD_COLS] = '\0';
 
     lcd_hw_init();
     s_dirty = true;
 }
 
+void display_set_status(const char *status)
+{
+    if (strncmp(s_status_line, status, LCD_COLS) == 0) return;
+    strncpy(s_status_line, status, LCD_COLS);
+    s_status_line[LCD_COLS] = '\0';
+    if (s_screen == SCREEN_MAIN) s_dirty = true;
+}
+
 void display_update(void)
 {
     if (!s_dirty) return;
+    uint32_t now = HAL_GetTick();
+    if (!s_priority_flush && (now - s_last_flush_ms) < 200U) return;
+    s_last_flush_ms  = now;
+    s_priority_flush = false;
     s_dirty = false;
 
     switch (s_screen) {
-        case SCREEN_MAIN:         build_screen_main();     break;
-        case SCREEN_MENU:         build_screen_menu();     break;
-        case SCREEN_PRESET:       build_screen_preset();   break;
-        case SCREEN_CALIBRATION:  build_screen_calib();    break;
-        case SCREEN_SETTINGS:     build_screen_settings(); break;
-        case SCREEN_ERROR:        build_screen_error();    break;
-        default:                  build_screen_main();     break;
+        case SCREEN_MAIN:         build_screen_main();        break;
+        case SCREEN_MENU:         build_screen_menu();        break;
+        case SCREEN_PRESET:       build_screen_preset();      break;
+        case SCREEN_PRESET_EDIT:  build_screen_preset_edit(); break;
+        case SCREEN_CALIBRATION:  build_screen_calib();       break;
+        case SCREEN_SETTINGS:     build_screen_settings();    break;
+        case SCREEN_ERROR:        build_screen_error();       break;
+        default:                  build_screen_main();        break;
     }
 
     flush_screen();
@@ -314,7 +418,8 @@ void display_set_screen(DisplayScreen s)
     if (s_screen != s) {
         s_screen = s;
         memset(s_lcd_buf, 0, sizeof(s_lcd_buf));
-        s_dirty = true;
+        s_dirty          = true;
+        s_priority_flush = true;  // зміна екрана → без затримки
     }
 }
 
@@ -391,7 +496,8 @@ uint8_t display_menu_get_item(void)
 
 void display_preset_scroll(int8_t delta)
 {
-    if (delta > 0 && s_preset_item < PRESET_COUNT - 1) {
+    uint8_t max_item = g_preset_count;  // g_preset_count = "+Add New"
+    if (delta > 0 && s_preset_item < max_item) {
         s_preset_item++;
     } else if (delta < 0 && s_preset_item > 0) {
         s_preset_item--;

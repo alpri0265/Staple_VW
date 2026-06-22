@@ -21,6 +21,7 @@ void motor_move_up(uint16_t speed);
 void motor_move_down(uint16_t speed);
 void motor_nudge_up(uint16_t speed);   // тонка підстройка вгору (без розгону)
 void motor_nudge_down(uint16_t speed); // тонка підстройка вниз (без розгону)
+void motor_jog_steps(bool up, uint16_t n_steps, uint16_t speed); // рівно n кроків
 void motor_stop(void);             // м'яка зупинка
 void motor_emergency_stop(void);   // миттєва зупинка (можна з ISR)
 void motor_clear_error(void);      // скинути стан ERROR → IDLE після підтвердження

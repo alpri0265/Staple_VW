@@ -4,6 +4,7 @@
 #include "config.h"
 #include "main.h"
 #include "torque_angle.h"
+#include "preset.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -13,24 +14,45 @@
 #define FLASH_EEPROM_SECTOR  FLASH_SECTOR_7
 #define FLASH_EEPROM_ADDR    0x08060000UL
 
+#define FLASH_MAGIC_V2  0xAC   // v2: scale+offset+target+angle
+#define FLASH_MAGIC_V3  0xAD   // v3: + presets
+
 #pragma pack(1)
 typedef struct {
-    float   scale;
-    int32_t offset;
-    float   target_force;
-    uint8_t magic;
-    float   angle_target;   // додано у v2 (magic=0xAC)
+    float    scale;
+    int32_t  offset;
+    float    target_force;
+    uint8_t  magic;
+    float    angle_target;
+    uint8_t  preset_count;
+    Preset_t presets[PRESET_MAX];
 } FlashData_t;
 #pragma pack()
 
 bool flash_load(float *scale, int32_t *offset, float *target_force, float *angle_target)
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
-    if (p->magic != EEPROM_MAGIC_VALUE) return false;
+    if (p->magic != FLASH_MAGIC_V2 && p->magic != FLASH_MAGIC_V3) return false;
+
     if (scale)        *scale        = p->scale;
     if (offset)       *offset       = p->offset;
     if (target_force) *target_force = p->target_force;
     if (angle_target) *angle_target = p->angle_target;
+
+    if (p->magic == FLASH_MAGIC_V3) {
+        uint8_t cnt = p->preset_count;
+        if (cnt > PRESET_MAX) cnt = PRESET_MAX;
+        for (uint8_t i = 0; i < cnt; i++) {
+            g_presets[i] = p->presets[i];
+            g_presets[i].inj_name[INJ_NAME_LEN - 1] = '\0';
+            g_presets[i].op_name[OP_NAME_LEN - 1]   = '\0';
+        }
+        g_preset_count = cnt;
+    } else {
+        // v2 → завантажити пресети за замовчуванням
+        preset_load_defaults();
+    }
+
     return true;
 }
 
@@ -51,12 +73,16 @@ bool flash_save(float scale, int32_t offset, float target_force, float angle_tar
     }
 
     FlashData_t data = {
-        .scale        = scale,
-        .offset       = offset,
-        .target_force = target_force,
-        .magic        = EEPROM_MAGIC_VALUE,
-        .angle_target = angle_target
+        .scale         = scale,
+        .offset        = offset,
+        .target_force  = target_force,
+        .magic         = FLASH_MAGIC_V3,
+        .angle_target  = angle_target,
+        .preset_count  = g_preset_count,
     };
+    for (uint8_t i = 0; i < g_preset_count && i < PRESET_MAX; i++) {
+        data.presets[i] = g_presets[i];
+    }
 
     const uint8_t *src  = (const uint8_t *)&data;
     uint32_t       addr = FLASH_EEPROM_ADDR;
@@ -74,7 +100,7 @@ bool flash_save(float scale, int32_t offset, float target_force, float angle_tar
 // ===== Калібровка =====
 
 static CalibStep s_step           = CALIB_STEP_IDLE;
-static float     s_known_kg       = 1.0f;             // маса еталону (вводить оператор)
+static float     s_known_kg       = 100.0f;           // маса еталону (вводить оператор)
 static int32_t   s_raw_tare       = 0;                // сирий відлік при нулі
 static int32_t   s_raw_load       = 0;                // сирий відлік під навантаженням
 static float     s_target_for_save = FORCE_DEFAULT_KG; // задане зусилля для збереження у Flash
@@ -99,7 +125,7 @@ static void update_display(void)
             break;
 
         case CALIB_STEP_INPUT_MASS:
-            snprintf(line, sizeof(line), "Mass: %.2f kg", (double)s_known_kg);
+            snprintf(line, sizeof(line), "Mass: %.0f kg", (double)s_known_kg);
             display_set_calib_text(0, "=== CALIBRATION ===");
             display_set_calib_text(1, "Set weight mass:");
             display_set_calib_text(2, line);
@@ -133,7 +159,7 @@ static void update_display(void)
 void calib_init(void)
 {
     s_step     = CALIB_STEP_IDLE;
-    s_known_kg = 1.0f;
+    s_known_kg = 100.0f;
 }
 
 void calib_start(float target_kg)
@@ -188,9 +214,9 @@ void calib_confirm(void)
 void calib_adjust(int8_t delta)
 {
     if (s_step == CALIB_STEP_INPUT_MASS) {
-        s_known_kg += (float)delta * 0.1f;
-        if (s_known_kg < 0.1f) s_known_kg = 0.1f;
-        if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+        s_known_kg += (float)delta * 1.0f;
+        if (s_known_kg < 1.0f)    s_known_kg = 1.0f;
+        if (s_known_kg > 2000.0f) s_known_kg = 2000.0f;
         update_display();
     }
 }

@@ -41,8 +41,12 @@
 #define FORCE_DEFAULT_KG    (FORCE_DEFAULT_KN * KN_TO_KG)  // ≈892 кг
 #define FORCE_STEP_KN       0.1f                // крок енкодера в кН
 #define FORCE_STEP_KG       (FORCE_STEP_KN * KN_TO_KG)     // ≈10.2 кг
-#define SLOWDOWN_THRESHOLD  0.80f               // 80% → перехід на SPEED_SLOW
-#define OVERLOAD_FACTOR     1.10f               // 110% → аварійна зупинка
+#define SLOWDOWN_THRESHOLD  0.80f               // 80% target → SPEED_SLOW (ручний режим)
+
+// Три ступені сповільнення в авторежимі (відсоток від mid_kN)
+#define PRESET_SLOW_THRESHOLD  0.70f   // 70%  mid → SPEED_SLOW
+#define PRESET_ENC_THRESHOLD   0.90f   // 90%  mid → SPEED_ENC
+#define BRAKE_KN               1.0f    // кН попередження зупинки (компенсація лагу датчика)
 
 /* ===== EEPROM (емуляція у Flash) ===== */
 #define EEPROM_CALIB_FACTOR   0x00  // float, 4 байти — калібрувальний коефіцієнт HX711
@@ -61,8 +65,9 @@
 /* ===== Антидребезг ===== */
 #define DEBOUNCE_MS         100     // тіків TIM7 (100мкс×100=10мс) для кнопок/джойстика
 
-/* ===== Тонка підстройка (ENC hold mode) ===== */
+/* ===== Тонка підстройка ===== */
 #define FINE_TIMEOUT_MS     300     // мс без тіків енкодера → зупин мотора
+#define ENC_JOG_STEPS        50     // кроків за один клік енкодера (~0.025 мм, ≈0.1 кН)
 
 /* ===== Кутовий датчик (PandAuto P3022-V1-CW360, аналоговий 0-5V) ===== */
 // PA1 (ADC1_CH1) через дільник R1=10kΩ/R2=10kΩ → Vpin_max = 2.5V

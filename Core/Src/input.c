@@ -67,7 +67,7 @@ void input_enc_isr(void)
 
 void input_update(void)
 {
-    // Encoder polling: детектуємо falling edge CLK в main loop
+    // Encoder: polling falling edge CLK (EXTI3 не активний на цій платі)
     bool clk = (HAL_GPIO_ReadPin(ENC_CLK_GPIO_Port, ENC_CLK_Pin) == GPIO_PIN_SET);
     if (!clk && s_clk_prev) {
         if (HAL_GPIO_ReadPin(ENC_DT_GPIO_Port, ENC_DT_Pin) == GPIO_PIN_SET) {
