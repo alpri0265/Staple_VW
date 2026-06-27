@@ -87,7 +87,14 @@ void Error_Handler(void);
 #define DIR_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
-
+// PB3 = JTDO/SWO debug pin — конфлікт з налагоджувачем, CLK завжди HIGH.
+// Encoder CLK фізично підключений до PC4.
+#undef  ENC_CLK_Pin
+#undef  ENC_CLK_GPIO_Port
+#undef  ENC_CLK_EXTI_IRQn
+#define ENC_CLK_Pin         GPIO_PIN_4
+#define ENC_CLK_GPIO_Port   GPIOC
+#define ENC_CLK_EXTI_IRQn   EXTI4_IRQn
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

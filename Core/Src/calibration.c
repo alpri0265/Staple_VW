@@ -24,7 +24,8 @@ typedef struct {
 bool flash_load(float *scale, int32_t *offset, float *target)
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
-    if (p->magic != EEPROM_MAGIC_VALUE) return false;
+    // 0xAB = поточна версія; 0xAC/0xAD = попередні (сумісний формат перших 13 байт)
+    if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
     if (scale)  *scale  = p->scale;
     if (offset) *offset = p->offset;
     if (target) *target = p->target_force;

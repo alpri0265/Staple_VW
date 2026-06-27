@@ -286,6 +286,35 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
+
+  // PB3 = JTDO/SWO debug pin: утримується налагоджувачем → вимкнути EXTI3.
+  // Encoder CLK фізично на PC4 — налаштувати як plain input для polling у ISR.
+  HAL_NVIC_DisableIRQ(EXTI3_IRQn);
+  {
+    GPIO_InitTypeDef enc_clk_cfg = {0};
+    enc_clk_cfg.Pin  = ENC_CLK_Pin;    // GPIO_PIN_4 (PC4)
+    enc_clk_cfg.Mode = GPIO_MODE_INPUT;
+    enc_clk_cfg.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(ENC_CLK_GPIO_Port, &enc_clk_cfg);  // GPIOC
+    HAL_NVIC_DisableIRQ(ENC_CLK_EXTI_IRQn);          // EXTI4
+  }
+
+  // I2C bus recovery: 10 SCL pulses to unlock PCF8574 after crash/reset
+  HAL_I2C_DeInit(&hi2c1);
+  {
+    GPIO_InitTypeDef g = {0};
+    g.Pin   = GPIO_PIN_6;
+    g.Mode  = GPIO_MODE_OUTPUT_OD;
+    g.Pull  = GPIO_NOPULL;
+    g.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &g);
+    for (int i = 0; i < 10; i++) {
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET); HAL_Delay(1);
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);   HAL_Delay(1);
+    }
+  }
+  MX_I2C1_Init();
+
   motor_init();
   loadcell_init();
   input_init();
@@ -307,7 +336,7 @@ int main(void)
 
   display_init();
   display_set_screen(SCREEN_MAIN);
-  display_set_force(0.0f, s_target_kg);
+  display_set_force(0.0f, s_target_kg / KN_TO_KG);
 
   HAL_TIM_Base_Start_IT(&htim7);
   /* USER CODE END 2 */
@@ -424,6 +453,9 @@ int main(void)
           if (s_fine_used) {
             motor_stop();
           } else {
+            // Споживаємо pressed_flag щоб він не спрацював у SCREEN_MENU
+            // одразу в наступній ітерації (stale flag від поточного натискання)
+            (void)input_enc_sw_pressed();
             display_set_screen(SCREEN_MENU);
           }
           s_fine_used = false;
@@ -454,10 +486,12 @@ int main(void)
       if (enc_delta > 0)       display_menu_next();
       else if (enc_delta < 0)  display_menu_prev();
 
-      if (input_enc_sw_pressed()) {
+      if (joy_down) {
+        display_set_screen(SCREEN_MAIN);  // джойстик вниз = вийти з меню без вибору
+      } else if (input_enc_sw_pressed()) {
         uint8_t item = display_menu_get_item();
         switch (item) {
-          case 0: auto_idle_screen(); break;
+          case 0: auto_start_cycle(); break;
           case 1: display_set_screen(SCREEN_PRESET); break;
           case 2: calib_start(s_target_kg); break;
           case 3: display_set_screen(SCREEN_SETTINGS); break;
@@ -468,16 +502,17 @@ int main(void)
 
     } else if (cur_screen == SCREEN_PRESET) {
 
-      // Навігація енкодером
-      if (enc_delta != 0) display_preset_scroll(enc_delta);
-
-      // Вибір пресету — встановлює ціль і повертається до роботи
-      if (input_enc_sw_pressed()) {
-        uint8_t idx = display_preset_get_item();
-        s_target_kg  = preset_target_kg(idx);
-        s_preset_idx = (int8_t)idx;
-        display_set_active_preset(s_preset_idx);
-        display_set_screen(SCREEN_MAIN);
+      if (joy_down) {
+        display_set_screen(SCREEN_MAIN);  // скасувати вибір пресету
+      } else {
+        if (enc_delta != 0) display_preset_scroll(enc_delta);
+        if (input_enc_sw_pressed()) {
+          uint8_t idx = display_preset_get_item();
+          s_target_kg  = preset_target_kg(idx);
+          s_preset_idx = (int8_t)idx;
+          display_set_active_preset(s_preset_idx);
+          display_set_screen(SCREEN_MAIN);
+        }
       }
 
     } else if (cur_screen == SCREEN_CALIBRATION) {
@@ -492,8 +527,8 @@ int main(void)
 
     } else if (cur_screen == SCREEN_SETTINGS) {
 
-      if (input_enc_sw_pressed()) {
-        display_set_screen(SCREEN_MENU);
+      if (joy_down || input_enc_sw_pressed()) {
+        display_set_screen(SCREEN_MAIN);  // будь-яке підтвердження → HOME
       }
     }
 

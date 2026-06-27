@@ -15,10 +15,11 @@ static DebounceBtn_t s_enc_sw;
 static uint8_t       s_debounce_subtick = 0;
 
 // Енкодер
-static volatile int8_t s_enc_delta  = 0;   // накопичені кроки (змінюється в ISR)
+static volatile int8_t s_enc_delta  = 0;   // накопичені кроки
 static volatile bool   s_stop_flag  = false;
 static volatile bool   s_enc_sw_pressed_flag  = false;
 static volatile bool   s_enc_sw_released_flag = false;
+
 
 // ===== Приватні функції =====
 
@@ -50,6 +51,22 @@ void input_init(void)
 
 void input_debounce_tick(void)
 {
+    // Encoder CLK polling at TIM7 rate (100µs) with 50-tick (5ms) debounce.
+    // Static locals are ISR-only: no concurrent access with main loop writers.
+    static bool     clk_prev = true;   // pull-up idle = HIGH
+    static uint16_t deb_ctr  = 0;      // countdown; 0 = ready to accept next edge
+
+    bool clk_now = (HAL_GPIO_ReadPin(ENC_CLK_GPIO_Port, ENC_CLK_Pin) == GPIO_PIN_SET);
+    if (deb_ctr > 0U) deb_ctr--;
+    if (!clk_now && clk_prev && (deb_ctr == 0U)) {
+        bool dt = (HAL_GPIO_ReadPin(ENC_DT_GPIO_Port, ENC_DT_Pin) == GPIO_PIN_SET);
+        // KY-040: CLK falls first (DT still HIGH) → CW; DT already LOW → CCW
+        if (dt) s_enc_delta++;
+        else    s_enc_delta--;
+        deb_ctr = (uint16_t)(5000U / TIM7_TICK_US);  // 5ms debounce window
+    }
+    clk_prev = clk_now;
+
     s_debounce_subtick++;
     if (s_debounce_subtick < (1000U / TIM7_TICK_US)) {
         return;
@@ -84,7 +101,6 @@ void input_enc_isr(void)
 
 void input_update(void)
 {
-    // Тут можна додати логіку стану якщо потрібно
     (void)0;
 }
 

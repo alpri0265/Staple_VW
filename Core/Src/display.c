@@ -341,6 +341,7 @@ void display_set_screen(DisplayScreen s)
         s_screen = s;
         memset(s_lcd_buf, 0, sizeof(s_lcd_buf));
         s_dirty = true;
+        if (s == SCREEN_MENU) s_menu_item = 0;  // курсор завжди з початку
     }
 }
 
@@ -444,3 +445,4 @@ uint8_t display_preset_get_item(void)
 {
     return s_preset_item;
 }
+
