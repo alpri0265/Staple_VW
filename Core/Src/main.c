@@ -151,7 +151,6 @@ int main(void)
   input_init();
   calib_init();
   MX_GPIO_ZERO_BTN_Init();
-  MX_GPIO_BOOST_Init();
   speedpot_init();
   torque_angle_init();
 

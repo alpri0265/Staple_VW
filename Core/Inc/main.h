@@ -103,9 +103,6 @@ void Error_Handler(void);
 // Кнопка ZERO (скидання кута)
 #define ZERO_BTN_Pin       GPIO_PIN_4    // GPIOD — Input PULLUP (LOW = натиснуто)
 #define ZERO_BTN_GPIO_Port GPIOD
-// Кнопка BOOST (прискорення + потенціометр швидкості)
-#define BOOST_BTN_Pin       GPIO_PIN_6   // GPIOC — Input PULLUP (LOW = натиснуто)
-#define BOOST_BTN_GPIO_Port GPIOC
 // Потенціометр швидкості
 #define SPEED_POT_Pin       GPIO_PIN_2   // GPIOA — ADC2_IN2 (аналоговий вхід)
 /* USER CODE END Private defines */

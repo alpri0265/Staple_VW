@@ -120,22 +120,5 @@ void MX_GPIO_ZERO_BTN_Init(void)
     HAL_GPIO_Init(ZERO_BTN_GPIO_Port, &GPIO_InitStruct);
 }
 
-/* BOOST_BTN — PC6, Input PULLUP (LOW = натиснуто) */
-/* SPEED_POT — PA2, Analog input (ADC2_IN2) */
-void MX_GPIO_BOOST_Init(void)
-{
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    __HAL_RCC_GPIOC_CLK_ENABLE();
-    GPIO_InitStruct.Pin  = BOOST_BTN_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-    HAL_GPIO_Init(BOOST_BTN_GPIO_Port, &GPIO_InitStruct);
-
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    GPIO_InitStruct.Pin  = SPEED_POT_Pin;
-    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-}
 /* USER CODE END 2 */

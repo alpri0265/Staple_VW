@@ -20,6 +20,5 @@ bool   input_stop_pressed(void);     // прапор аварійної зупи
 void   input_stop_clear(void);       // скинути прапор після обробки
 void   input_stop_set(void);         // встановити прапор (з ISR)
 
-bool   input_boost_held(void);       // кнопка boost утримана (PC6, LOW = натиснуто)
 
 #endif /* __INPUT_H */
