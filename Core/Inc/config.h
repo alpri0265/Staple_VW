@@ -23,19 +23,31 @@
 
 /* ===== Швидкості (кроків/с) =====
  * При TIM7 = 100 us швидкість відповідає заданій набагато точніше.
- *   SPEED_FAST:     1000 steps/s → 0.25 mm/s ≈ 15 mm/min
+ * Теоретичний максимум генератора STEP при TIM7=100 us і STEP_PULSE_TICKS=1:
+ * min_period = 2 ticks => 5000 steps/s.
+ *   SPEED_FAST:     5000 steps/s → 1.25 mm/s ≈ 75 mm/min
  *   SPEED_PRESS:     400 steps/s → 0.10 mm/s ≈ 6  mm/min
  *   SPEED_ENC:       200 steps/s → 0.05 mm/s ≈ 3  mm/min
- *   SPEED_APPROACH: 2000 steps/s → 0.50 mm/s ≈ 30 mm/min
- *   SPEED_APPROACH_SOFT: 800 steps/s → 0.20 mm/s ≈ 12 mm/min
+ *   SPEED_APPROACH: 5000 steps/s → 1.25 mm/s ≈ 75 mm/min
+ *   SPEED_APPROACH_SOFT: 1200 steps/s → 0.30 mm/s ≈ 18 mm/min
  */
-#define SPEED_FAST          1000    // вільний рух / retract
+#define SPEED_FAST          5000    // вільний рух / retract, таймерний максимум генератора STEP
 #define SPEED_PRESS         400     // робочий рух після контакту
 #define SPEED_ENC           200     // енкодер, тонке підналаштування
-#define SPEED_APPROACH      2000    // швидкий підхід до деталі до появи навантаження
-#define SPEED_APPROACH_SOFT 800     // м'який підхід перед контактом
+#define SPEED_APPROACH      5000    // швидкий підхід до деталі до появи навантаження, таймерний максимум
+#define SPEED_APPROACH_SOFT 1200    // м'який підхід перед контактом
 #define APPROACH_SOFT_KG    5.0f    // після цього порогу скидаємо швидкість до soft approach
 #define APPROACH_CONTACT_KG 10.0f   // поріг контакту: після нього переходимо на SPEED_PRESS
+#define POT_ADC_MIN_ACTIVE  64U     // запас від країв АЦП, щоб крайні положення були стабільні
+#define POT_ADC_MAX_ACTIVE  4031U
+#define POT_DOWN_MIN_SPEED  SPEED_ENC
+#define POT_DOWN_MAX_SPEED  SPEED_FAST
+#define ANGLE_ADC_VREF      3.3f    // опорна напруга АЦП (В)
+#define ANGLE_SENSOR_V_MAX  5.0f    // напруга датчика при 360° (В)
+#define ANGLE_DIVIDER_RATIO 0.5f    // дільник 10k/10k: 5V -> 2.5V на вході МК
+#define ANGLE_DEFAULT_DEG   90.0f   // типовий цільовий кут
+#define ANGLE_STEP_DEG      5.0f    // крок зміни у Settings
+#define ANGLE_MAX_DEG       360.0f  // абсолютний датчик — макс. 1 оберт
 #define HEAVY_START_SPEED   80      // окремий профіль старту для важкої механіки
 #define HEAVY_RAMP_MS       20      // раз на N мс зменшуємо/збільшуємо period у heavy profile
 #define HEAVY_RAMP_STEP     1       // крок зміни period у heavy profile
@@ -70,8 +82,9 @@
 #define EEPROM_CALIB_FACTOR   0x00  // float, 4 байти — калібрувальний коефіцієнт HX711
 #define EEPROM_CALIB_OFFSET   0x04  // int32, 4 байти — нульове зміщення (tare)
 #define EEPROM_TARGET_FORCE   0x08  // float, 4 байти — останнє задане зусилля
-#define EEPROM_MAGIC          0x0C  // uint8 = 0xAB — маркер валідності даних
-#define EEPROM_MAGIC_VALUE    0xAB
+#define EEPROM_MAGIC          0x0C  // uint8 = версія формату
+#define EEPROM_ANGLE_TARGET   0x10  // float, 4 байти — цільовий кут
+#define EEPROM_MAGIC_VALUE    0xAD
 
 /* ===== HX711 налаштування ===== */
 #define HX711_GAIN_128      1       // Channel A, gain 128 (за замовчуванням)

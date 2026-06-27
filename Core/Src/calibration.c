@@ -2,6 +2,7 @@
 #include "loadcell.h"
 #include "display.h"
 #include "config.h"
+#include "torque_angle.h"
 #include "main.h"
 #include <stdio.h>
 #include <string.h>
@@ -18,21 +19,24 @@ typedef struct {
     int32_t offset;
     float   target_force;
     uint8_t magic;
+    float   angle_target;
 } FlashData_t;
 #pragma pack()
 
-bool flash_load(float *scale, int32_t *offset, float *target)
+bool flash_load(float *scale, int32_t *offset, float *target, float *angle_target)
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
-    // 0xAB = поточна версія; 0xAC/0xAD = попередні (сумісний формат перших 13 байт)
     if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
     if (scale)  *scale  = p->scale;
     if (offset) *offset = p->offset;
     if (target) *target = p->target_force;
+    if (angle_target) {
+        *angle_target = (p->magic == 0xAD) ? p->angle_target : ANGLE_DEFAULT_DEG;
+    }
     return true;
 }
 
-bool flash_save(float scale, int32_t offset, float target)
+bool flash_save(float scale, int32_t offset, float target, float angle_target)
 {
     HAL_FLASH_Unlock();
 
@@ -52,7 +56,8 @@ bool flash_save(float scale, int32_t offset, float target)
         .scale        = scale,
         .offset       = offset,
         .target_force = target,
-        .magic        = EEPROM_MAGIC_VALUE
+        .magic        = EEPROM_MAGIC_VALUE,
+        .angle_target = angle_target
     };
 
     // Записуємо побайтово (HAL_FLASH_Program підтримує BYTE)
@@ -209,7 +214,8 @@ void calib_update(void)
         }
 
         case CALIB_STEP_SAVE: {
-            if (flash_save(loadcell_get_scale(), loadcell_get_offset(), s_target_for_save)) {
+            if (flash_save(loadcell_get_scale(), loadcell_get_offset(),
+                           s_target_for_save, torque_angle_get_target())) {
                 s_step = CALIB_STEP_VERIFY;
                 update_display();
             } else {

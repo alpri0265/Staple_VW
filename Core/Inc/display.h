@@ -33,11 +33,13 @@ void          display_set_screen(DisplayScreen s);
 DisplayScreen display_get_screen(void);
 // current та target передаються в кН
 void          display_set_force(float current_kN, float target_kN);
+void          display_set_angle(float current_deg, float target_deg, bool reached);
 void          display_set_motion_mode(DisplayMotionMode mode);
 void          display_set_motion_speed(uint16_t speed_steps);
 void          display_set_auto_metrics(float current_kN, float target_kN, float error_kN);
 void          display_show_error(const char *msg);
 void          display_set_calib_text(uint8_t line, const char *text);
+void          display_settings_set_angle(float deg);
 
 // Активний пресет для головного екрану (-1 = немає)
 void display_set_active_preset(int8_t idx);

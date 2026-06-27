@@ -31,6 +31,8 @@
 #include "display.h"
 #include "calibration.h"
 #include "preset.h"
+#include "speedpot.h"
+#include "torque_angle.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -69,6 +71,10 @@ static uint32_t s_fine_tick    = 0;      // час останнього тіку
 static AutoState s_auto_state  = AUTO_STATE_IDLE;
 static uint32_t  s_auto_deadline = 0;
 static uint16_t  s_auto_cmd_speed = 0;
+static uint16_t  s_pot_raw_filtered = 2048U;
+static uint32_t  s_zero_btn_tick = 0;
+static bool      s_zero_btn_last = false;
+static bool      s_ignore_next_enc_release = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -82,6 +88,73 @@ void SystemClock_Config(void);
 static float absf_local(float x)
 {
   return (x < 0.0f) ? -x : x;
+}
+
+static uint16_t clamp_u16_local(uint16_t value, uint16_t min_value, uint16_t max_value)
+{
+  if (value < min_value) return min_value;
+  if (value > max_value) return max_value;
+  return value;
+}
+
+static uint16_t pot_read_filtered_raw(void)
+{
+  uint16_t raw = speedpot_get_raw();
+  s_pot_raw_filtered = (uint16_t)(((uint32_t)s_pot_raw_filtered * 3U + raw + 2U) / 4U);
+  return s_pot_raw_filtered;
+}
+
+static uint16_t pot_map_speed(uint16_t raw, uint16_t min_speed, uint16_t max_speed)
+{
+  uint32_t span;
+  uint32_t scaled;
+
+  if (max_speed <= min_speed) return min_speed;
+
+  raw = clamp_u16_local(raw, POT_ADC_MIN_ACTIVE, POT_ADC_MAX_ACTIVE);
+  span = (uint32_t)(POT_ADC_MAX_ACTIVE - POT_ADC_MIN_ACTIVE);
+  scaled = (uint32_t)(raw - POT_ADC_MIN_ACTIVE) * (uint32_t)(max_speed - min_speed);
+
+  return (uint16_t)(min_speed + (uint16_t)((scaled + (span / 2U)) / span));
+}
+
+static uint16_t manual_up_speed_from_pot(uint16_t pot_raw, float force)
+{
+  if (force < APPROACH_SOFT_KG) {
+    return pot_map_speed(pot_raw, SPEED_PRESS, SPEED_APPROACH);
+  }
+  if (force < APPROACH_CONTACT_KG) {
+    return pot_map_speed(pot_raw, SPEED_PRESS, SPEED_APPROACH_SOFT);
+  }
+  return SPEED_PRESS;
+}
+
+static uint16_t manual_down_speed_from_pot(uint16_t pot_raw)
+{
+  return pot_map_speed(pot_raw, POT_DOWN_MIN_SPEED, POT_DOWN_MAX_SPEED);
+}
+
+static void clear_active_preset(void)
+{
+  s_preset_idx = -1;
+  display_set_active_preset(-1);
+}
+
+static bool ui_back_requested(bool joy_down)
+{
+  if (joy_down) {
+    return true;
+  }
+
+  if (input_enc_sw_released()) {
+    if (s_ignore_next_enc_release) {
+      s_ignore_next_enc_release = false;
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 static bool auto_is_active(void)
@@ -98,15 +171,6 @@ static bool auto_is_visible(void)
   return auto_is_active() ||
          s_auto_state == AUTO_STATE_DONE ||
          s_auto_state == AUTO_STATE_ERROR;
-}
-
-static void auto_idle_screen(void)
-{
-  s_auto_state = AUTO_STATE_IDLE;
-  s_auto_deadline = 0;
-  s_auto_cmd_speed = 0;
-  motor_stop();
-  display_set_screen(SCREEN_AUTO);
 }
 
 static void auto_reset(void)
@@ -314,8 +378,11 @@ int main(void)
     }
   }
   MX_I2C1_Init();
+  MX_GPIO_ZERO_BTN_Init();
 
   motor_init();
+  speedpot_init();
+  torque_angle_init();
   loadcell_init();
   input_init();
   calib_init();
@@ -325,11 +392,15 @@ int main(void)
     float   saved_scale;
     int32_t saved_offset;
     float   saved_target;
-    if (flash_load(&saved_scale, &saved_offset, &saved_target)) {
+    float   saved_angle;
+    if (flash_load(&saved_scale, &saved_offset, &saved_target, &saved_angle)) {
       loadcell_set_scale(saved_scale);
       loadcell_set_offset(saved_offset);
       if (saved_target > 0.0f && saved_target <= FORCE_MAX_KG) {
         s_target_kg = saved_target;
+      }
+      if (saved_angle >= 0.0f && saved_angle <= ANGLE_MAX_DEG) {
+        torque_angle_set_target(saved_angle);
       }
     }
   }
@@ -337,6 +408,7 @@ int main(void)
   display_init();
   display_set_screen(SCREEN_MAIN);
   display_set_force(0.0f, s_target_kg / KN_TO_KG);
+  display_set_angle(0.0f, torque_angle_get_target(), false);
 
   HAL_TIM_Base_Start_IT(&htim7);
   /* USER CODE END 2 */
@@ -354,6 +426,7 @@ int main(void)
 
     float force = loadcell_get_kg();
     float force_fast = loadcell_get_fast_kg();
+    uint16_t pot_raw = pot_read_filtered_raw();
     int8_t enc_delta = input_enc_get_delta();
     DisplayScreen cur_screen = display_get_screen();
     DisplayMotionMode motion_mode = DISPLAY_MODE_IDLE;
@@ -383,6 +456,18 @@ int main(void)
       display_show_error("HX711 no response");
     }
 
+    // --- Кнопка ZERO кутового датчика ---
+    {
+      bool zero_now = (HAL_GPIO_ReadPin(ZERO_BTN_GPIO_Port, ZERO_BTN_Pin) == GPIO_PIN_RESET);
+      if (zero_now && !s_zero_btn_last) {
+        if ((HAL_GetTick() - s_zero_btn_tick) >= DEBOUNCE_MS) {
+          torque_angle_zero();
+        }
+        s_zero_btn_tick = HAL_GetTick();
+      }
+      s_zero_btn_last = zero_now;
+    }
+
     // --- Логіка по екранах ---
     if (cur_screen == SCREEN_MAIN || cur_screen == SCREEN_AUTO) {
 
@@ -397,8 +482,9 @@ int main(void)
         }
       }
 
-      if (cur_screen == SCREEN_AUTO && joy_down && auto_is_visible()) {
-        auto_idle_screen();
+      if (cur_screen == SCREEN_AUTO && joy_down) {
+        motor_stop();
+        auto_reset();
       } else if (cur_screen == SCREEN_AUTO && joy_up && !auto_is_visible()) {
         auto_start_cycle();
       } else if (auto_is_active() || s_auto_state == AUTO_STATE_DONE) {
@@ -408,22 +494,19 @@ int main(void)
         bool enc_held = input_enc_sw_held();
 
         if (cur_screen == SCREEN_MAIN && joy_up && !motor_is_limit_top()) {
-          uint16_t spd;
+          uint16_t spd = manual_up_speed_from_pot(pot_raw, force);
           if (force < APPROACH_SOFT_KG) {
-            spd = SPEED_APPROACH;
             motion_mode = DISPLAY_MODE_APPROACH;
           } else if (force < APPROACH_CONTACT_KG) {
-            spd = SPEED_APPROACH_SOFT;
             motion_mode = DISPLAY_MODE_SOFT;
           } else {
-            spd = SPEED_PRESS;
             motion_mode = DISPLAY_MODE_PRESS;
           }
           motion_speed = spd;
           motor_move_up(spd);
         } else if (cur_screen == SCREEN_MAIN && joy_down && !motor_is_limit_bot()) {
           motion_mode = DISPLAY_MODE_RETRACT;
-          motion_speed = SPEED_FAST;
+          motion_speed = manual_down_speed_from_pot(pot_raw);
           motor_move_down(motion_speed);
         } else if (!joy_up && !joy_down && !enc_held && motor_is_running()) {
           motor_stop();
@@ -473,6 +556,9 @@ int main(void)
       if ((HAL_GetTick() - s_display_tick) >= 100U) {
         s_display_tick = HAL_GetTick();
         display_set_force(loadcell_get_kN(), s_target_kg / KN_TO_KG);
+        display_set_angle(torque_angle_get_deg(),
+                          torque_angle_get_target(),
+                          torque_angle_is_reached());
       }
 
       display_set_motion_mode(motion_mode);
@@ -486,24 +572,36 @@ int main(void)
       if (enc_delta > 0)       display_menu_next();
       else if (enc_delta < 0)  display_menu_prev();
 
-      if (joy_down) {
-        display_set_screen(SCREEN_MAIN);  // джойстик вниз = вийти з меню без вибору
+      if (ui_back_requested(joy_down)) {
+        display_set_screen(SCREEN_MAIN);  // уніфікований вихід на головний екран
       } else if (input_enc_sw_pressed()) {
         uint8_t item = display_menu_get_item();
         switch (item) {
           case 0: auto_start_cycle(); break;
-          case 1: display_set_screen(SCREEN_PRESET); break;
+          case 1:
+            s_ignore_next_enc_release = true;
+            display_set_screen(SCREEN_PRESET);
+            break;
           case 2: calib_start(s_target_kg); break;
-          case 3: display_set_screen(SCREEN_SETTINGS); break;
-          case 4: motor_reset_position(); display_set_screen(SCREEN_MAIN); break;
+          case 3:
+            s_ignore_next_enc_release = true;
+            display_settings_set_angle(torque_angle_get_target());
+            display_set_screen(SCREEN_SETTINGS);
+            break;
+          case 4:
+            s_ignore_next_enc_release = true;
+            clear_active_preset();
+            motor_reset_position();
+            display_set_screen(SCREEN_MAIN);
+            break;
           default: break;
         }
       }
 
     } else if (cur_screen == SCREEN_PRESET) {
 
-      if (joy_down) {
-        display_set_screen(SCREEN_MAIN);  // скасувати вибір пресету
+      if (ui_back_requested(joy_down)) {
+        display_set_screen(SCREEN_MAIN);  // уніфікований вихід на головний екран
       } else {
         if (enc_delta != 0) display_preset_scroll(enc_delta);
         if (input_enc_sw_pressed()) {
@@ -511,6 +609,7 @@ int main(void)
           s_target_kg  = preset_target_kg(idx);
           s_preset_idx = (int8_t)idx;
           display_set_active_preset(s_preset_idx);
+          s_ignore_next_enc_release = true;
           display_set_screen(SCREEN_MAIN);
         }
       }
@@ -527,8 +626,18 @@ int main(void)
 
     } else if (cur_screen == SCREEN_SETTINGS) {
 
-      if (joy_down || input_enc_sw_pressed()) {
-        display_set_screen(SCREEN_MAIN);  // будь-яке підтвердження → HOME
+      if (enc_delta != 0) {
+        float new_angle = torque_angle_get_target() + (float)enc_delta * ANGLE_STEP_DEG;
+        torque_angle_set_target(new_angle);
+        display_settings_set_angle(torque_angle_get_target());
+      }
+
+      if (input_enc_sw_pressed()) {
+        flash_save(loadcell_get_scale(), loadcell_get_offset(),
+                   s_target_kg, torque_angle_get_target());
+        display_set_screen(SCREEN_MENU);
+      } else if (ui_back_requested(joy_down)) {
+        display_set_screen(SCREEN_MAIN);  // уніфікований вихід на головний екран
       }
     }
 

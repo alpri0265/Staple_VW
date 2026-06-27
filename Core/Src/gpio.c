@@ -113,4 +113,16 @@ void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 2 */
 
+void MX_GPIO_ZERO_BTN_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  GPIO_InitStruct.Pin  = ZERO_BTN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(ZERO_BTN_GPIO_Port, &GPIO_InitStruct);
+}
+
 /* USER CODE END 2 */

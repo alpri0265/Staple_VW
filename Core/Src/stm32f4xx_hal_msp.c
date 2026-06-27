@@ -78,4 +78,38 @@ void HAL_MspInit(void)
 
 /* USER CODE BEGIN 1 */
 
+void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  if (adcHandle->Instance == ADC1) {
+    __HAL_RCC_ADC1_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    GPIO_InitStruct.Pin = ANGLE_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(ANGLE_GPIO_Port, &GPIO_InitStruct);
+  } else if (adcHandle->Instance == ADC2) {
+    __HAL_RCC_ADC2_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    GPIO_InitStruct.Pin = POT_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(POT_GPIO_Port, &GPIO_InitStruct);
+  }
+}
+
+void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
+{
+  if (adcHandle->Instance == ADC1) {
+    __HAL_RCC_ADC1_CLK_DISABLE();
+    HAL_GPIO_DeInit(ANGLE_GPIO_Port, ANGLE_Pin);
+  } else if (adcHandle->Instance == ADC2) {
+    __HAL_RCC_ADC2_CLK_DISABLE();
+    HAL_GPIO_DeInit(POT_GPIO_Port, POT_Pin);
+  }
+}
+
 /* USER CODE END 1 */

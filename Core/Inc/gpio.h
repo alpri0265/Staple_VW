@@ -39,6 +39,7 @@ extern "C" {
 void MX_GPIO_Init(void);
 
 /* USER CODE BEGIN Prototypes */
+void MX_GPIO_ZERO_BTN_Init(void);
 
 /* USER CODE END Prototypes */
 
@@ -46,4 +47,3 @@ void MX_GPIO_Init(void);
 }
 #endif
 #endif /*__ GPIO_H__ */
-

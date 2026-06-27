@@ -66,6 +66,8 @@ void Error_Handler(void);
 #define STOP_BTN_Pin GPIO_PIN_0
 #define STOP_BTN_GPIO_Port GPIOA
 #define STOP_BTN_EXTI_IRQn EXTI0_IRQn
+#define ANGLE_Pin GPIO_PIN_1
+#define ANGLE_GPIO_Port GPIOA
 #define ENC_DT_Pin GPIO_PIN_1
 #define ENC_DT_GPIO_Port GPIOB
 #define ENC_SW_Pin GPIO_PIN_2
@@ -78,6 +80,8 @@ void Error_Handler(void);
 #define JOY_UP_GPIO_Port GPIOD
 #define JOY_DOWN_Pin GPIO_PIN_3
 #define JOY_DOWN_GPIO_Port GPIOD
+#define ZERO_BTN_Pin GPIO_PIN_4
+#define ZERO_BTN_GPIO_Port GPIOD
 #define ENC_CLK_Pin GPIO_PIN_3
 #define ENC_CLK_GPIO_Port GPIOB
 #define ENC_CLK_EXTI_IRQn EXTI3_IRQn
@@ -95,6 +99,8 @@ void Error_Handler(void);
 #define ENC_CLK_Pin         GPIO_PIN_4
 #define ENC_CLK_GPIO_Port   GPIOC
 #define ENC_CLK_EXTI_IRQn   EXTI4_IRQn
+#define POT_Pin             GPIO_PIN_2
+#define POT_GPIO_Port       GPIOA
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

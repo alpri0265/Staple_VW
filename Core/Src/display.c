@@ -27,6 +27,9 @@ static const uint8_t ROW_ADDR[4] = { 0x00, 0x40, 0x14, 0x54 };
 static DisplayScreen  s_screen        = SCREEN_MAIN;
 static float          s_force         = 0.0f;   // кН
 static float          s_target        = FORCE_DEFAULT_KN;  // кН
+static float          s_angle_current = 0.0f;
+static float          s_angle_target  = ANGLE_DEFAULT_DEG;
+static bool           s_angle_reached = false;
 static DisplayMotionMode s_motion_mode = DISPLAY_MODE_IDLE;
 static uint16_t       s_motion_speed  = 0;      // командна швидкість, steps/s
 static float          s_auto_force    = 0.0f;   // кН для AUTO екрана
@@ -46,6 +49,8 @@ static char s_calib_lines[LCD_ROWS][LCD_COLS + 1];
 
 // Помилка
 static char s_error_msg[LCD_COLS + 1];
+static uint8_t s_blink_tick = 0;
+static float   s_settings_angle = ANGLE_DEFAULT_DEG;
 
 // ===== PCF8574 / LCD низькорівневі функції =====
 
@@ -145,13 +150,20 @@ static void build_screen_main(void)
     }
     make_line_padded(s_new_buf[0], tmp);
 
-    // Рядок 1: поточне зусилля в кН
-    snprintf(tmp, sizeof(tmp), "Force: %7.2f kN", (double)s_force);
+    // Рядок 1: поточне і задане зусилля
+    snprintf(tmp, sizeof(tmp), "F:%5.2f kN  T:%5.2f",
+             (double)s_force, (double)s_target);
     make_line_padded(s_new_buf[1], tmp);
 
-    // Рядок 2: задане зусилля в кН
-    snprintf(tmp, sizeof(tmp), "Target:%7.2f kN", (double)s_target);
-    make_line_padded(s_new_buf[2], tmp);
+    // Рядок 2: поточний / заданий кут
+    s_blink_tick++;
+    if (s_angle_reached && (s_blink_tick & 0x03U)) {
+        make_line_padded(s_new_buf[2], "Angle: [  DONE!  ]  ");
+    } else {
+        snprintf(tmp, sizeof(tmp), "Angle:%6.1f /%6.1f",
+                 (double)s_angle_current, (double)s_angle_target);
+        make_line_padded(s_new_buf[2], tmp);
+    }
 
     switch (s_motion_mode) {
         case DISPLAY_MODE_APPROACH: mode = "APPR"; break;
@@ -211,7 +223,7 @@ static const char *MENU_LABELS[MENU_ITEMS] = {
     "2.Presets",
     "3.Calibration",
     "4.Settings",
-    "5.Home (zero)"
+    "5.Manual + zero"
 };
 
 static void build_screen_menu(void)
@@ -272,10 +284,12 @@ static void build_screen_calib(void)
 
 static void build_screen_settings(void)
 {
+    char tmp[LCD_COLS + 1];
     make_line_padded(s_new_buf[0], "=== SETTINGS ===");
-    make_line_padded(s_new_buf[1], "Not yet available");
-    make_line_padded(s_new_buf[2], "");
-    make_line_padded(s_new_buf[3], "BTN=back");
+    snprintf(tmp, sizeof(tmp), "Angle target:%6.1f", (double)s_settings_angle);
+    make_line_padded(s_new_buf[1], tmp);
+    make_line_padded(s_new_buf[2], "ENC=change  BTN=OK");
+    make_line_padded(s_new_buf[3], "");
 }
 
 static void build_screen_error(void)
@@ -354,6 +368,17 @@ void display_set_force(float current_kN, float target_kN)
     }
 }
 
+void display_set_angle(float current_deg, float target_deg, bool reached)
+{
+    if (s_angle_current != current_deg || s_angle_target != target_deg ||
+        s_angle_reached != reached) {
+        s_angle_current = current_deg;
+        s_angle_target  = target_deg;
+        s_angle_reached = reached;
+        if (s_screen == SCREEN_MAIN) s_dirty = true;
+    }
+}
+
 void display_set_motion_mode(DisplayMotionMode mode)
 {
     if (s_motion_mode != mode) {
@@ -394,6 +419,14 @@ void display_set_calib_text(uint8_t line, const char *text)
     strncpy(s_calib_lines[line], text, LCD_COLS);
     s_calib_lines[line][LCD_COLS] = '\0';
     if (s_screen == SCREEN_CALIBRATION) s_dirty = true;
+}
+
+void display_settings_set_angle(float deg)
+{
+    if (s_settings_angle != deg) {
+        s_settings_angle = deg;
+        if (s_screen == SCREEN_SETTINGS) s_dirty = true;
+    }
 }
 
 void display_set_active_preset(int8_t idx)
@@ -445,4 +478,3 @@ uint8_t display_preset_get_item(void)
 {
     return s_preset_item;
 }
-
