@@ -683,9 +683,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         motor_emergency_stop();
         input_stop_set();
     }
-    if (GPIO_Pin == ENC_CLK_Pin) {
-        input_enc_isr();
-    }
+    /* ENC_CLK handled by polling in input_debounce_tick (TIM3 IRQ) */
 }
 /* USER CODE END 4 */
 
