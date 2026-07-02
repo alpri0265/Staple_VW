@@ -1,0 +1,1620 @@
+ARM GAS  /tmp/ccCTT9bQ.s 			page 1
+
+
+   1              		.cpu cortex-m4
+   2              		.arch armv7e-m
+   3              		.fpu fpv4-sp-d16
+   4              		.eabi_attribute 27, 1
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 1
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"calibration.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.file 1 "Core/Src/calibration.c"
+  20              		.section	.rodata.update_display.str1.4,"aMS",%progbits,1
+  21              		.align	2
+  22              	.LC0:
+  23 0000 3D3D3D20 		.ascii	"=== CALIBRATION ===\000"
+  23      43414C49 
+  23      42524154 
+  23      494F4E20 
+  23      3D3D3D00 
+  24              		.align	2
+  25              	.LC1:
+  26 0014 52656D6F 		.ascii	"Remove all weight\000"
+  26      76652061 
+  26      6C6C2077 
+  26      65696768 
+  26      7400
+  27 0026 0000     		.align	2
+  28              	.LC2:
+  29 0028 7468656E 		.ascii	"then press ENC BTN\000"
+  29      20707265 
+  29      73732045 
+  29      4E432042 
+  29      544E00
+  30 003b 00       		.align	2
+  31              	.LC3:
+  32 003c 00       		.ascii	"\000"
+  33 003d 000000   		.align	2
+  34              	.LC4:
+  35 0040 506C6163 		.ascii	"Place known weight\000"
+  35      65206B6E 
+  35      6F776E20 
+  35      77656967 
+  35      687400
+  36 0053 00       		.align	2
+  37              	.LC5:
+  38 0054 4D617373 		.ascii	"Mass: %.2f kg\000"
+  38      3A20252E 
+  38      3266206B 
+  38      6700
+ARM GAS  /tmp/ccCTT9bQ.s 			page 2
+
+
+  39 0062 0000     		.align	2
+  40              	.LC6:
+  41 0064 53657420 		.ascii	"Set weight mass:\000"
+  41      77656967 
+  41      6874206D 
+  41      6173733A 
+  41      00
+  42 0075 000000   		.align	2
+  43              	.LC7:
+  44 0078 454E433D 		.ascii	"ENC=adjust  BTN=ok\000"
+  44      61646A75 
+  44      73742020 
+  44      42544E3D 
+  44      6F6B00
+  45 008b 00       		.align	2
+  46              	.LC8:
+  47 008c 53617669 		.ascii	"Saving...\000"
+  47      6E672E2E 
+  47      2E00
+  48 0096 0000     		.align	2
+  49              	.LC9:
+  50 0098 5363616C 		.ascii	"Scale: %.1f\000"
+  50      653A2025 
+  50      2E316600 
+  51              		.align	2
+  52              	.LC10:
+  53 00a4 43616C69 		.ascii	"Calibration done!\000"
+  53      62726174 
+  53      696F6E20 
+  53      646F6E65 
+  53      2100
+  54 00b6 0000     		.align	2
+  55              	.LC11:
+  56 00b8 466F7263 		.ascii	"Force: %.2f kg\000"
+  56      653A2025 
+  56      2E326620 
+  56      6B6700
+  57 00c7 00       		.align	2
+  58              	.LC12:
+  59 00c8 42544E3D 		.ascii	"BTN=exit\000"
+  59      65786974 
+  59      00
+  60              		.section	.text.update_display,"ax",%progbits
+  61              		.align	1
+  62              		.syntax unified
+  63              		.thumb
+  64              		.thumb_func
+  66              	update_display:
+  67              	.LFB225:
+   1:Core/Src/calibration.c **** #include "calibration.h"
+   2:Core/Src/calibration.c **** #include "loadcell.h"
+   3:Core/Src/calibration.c **** #include "display.h"
+   4:Core/Src/calibration.c **** #include "config.h"
+   5:Core/Src/calibration.c **** #include "torque_angle.h"
+   6:Core/Src/calibration.c **** #include "main.h"
+   7:Core/Src/calibration.c **** #include <stdio.h>
+   8:Core/Src/calibration.c **** #include <string.h>
+ARM GAS  /tmp/ccCTT9bQ.s 			page 3
+
+
+   9:Core/Src/calibration.c **** 
+  10:Core/Src/calibration.c **** // ===== Flash EEPROM =====
+  11:Core/Src/calibration.c **** // Використовуємо останній сектор (Sector 7, 128KB, 0x08060000)
+  12:Core/Src/calibration.c **** 
+  13:Core/Src/calibration.c **** #define FLASH_EEPROM_SECTOR  FLASH_SECTOR_7
+  14:Core/Src/calibration.c **** #define FLASH_EEPROM_ADDR    0x08060000UL
+  15:Core/Src/calibration.c **** 
+  16:Core/Src/calibration.c **** #pragma pack(1)
+  17:Core/Src/calibration.c **** typedef struct {
+  18:Core/Src/calibration.c ****     float   scale;
+  19:Core/Src/calibration.c ****     int32_t offset;
+  20:Core/Src/calibration.c ****     float   target_force;
+  21:Core/Src/calibration.c ****     uint8_t magic;
+  22:Core/Src/calibration.c ****     float   angle_target;
+  23:Core/Src/calibration.c **** } FlashData_t;
+  24:Core/Src/calibration.c **** #pragma pack()
+  25:Core/Src/calibration.c **** 
+  26:Core/Src/calibration.c **** bool flash_load(float *scale, int32_t *offset, float *target, float *angle_target)
+  27:Core/Src/calibration.c **** {
+  28:Core/Src/calibration.c ****     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
+  29:Core/Src/calibration.c ****     if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
+  30:Core/Src/calibration.c ****     if (scale)  *scale  = p->scale;
+  31:Core/Src/calibration.c ****     if (offset) *offset = p->offset;
+  32:Core/Src/calibration.c ****     if (target) *target = p->target_force;
+  33:Core/Src/calibration.c ****     if (angle_target) {
+  34:Core/Src/calibration.c ****         *angle_target = (p->magic == 0xAD) ? p->angle_target : ANGLE_DEFAULT_DEG;
+  35:Core/Src/calibration.c ****     }
+  36:Core/Src/calibration.c ****     return true;
+  37:Core/Src/calibration.c **** }
+  38:Core/Src/calibration.c **** 
+  39:Core/Src/calibration.c **** bool flash_save(float scale, int32_t offset, float target, float angle_target)
+  40:Core/Src/calibration.c **** {
+  41:Core/Src/calibration.c ****     HAL_FLASH_Unlock();
+  42:Core/Src/calibration.c **** 
+  43:Core/Src/calibration.c ****     FLASH_EraseInitTypeDef erase = {
+  44:Core/Src/calibration.c ****         .TypeErase    = FLASH_TYPEERASE_SECTORS,
+  45:Core/Src/calibration.c ****         .Sector       = FLASH_EEPROM_SECTOR,
+  46:Core/Src/calibration.c ****         .NbSectors    = 1,
+  47:Core/Src/calibration.c ****         .VoltageRange = FLASH_VOLTAGE_RANGE_3
+  48:Core/Src/calibration.c ****     };
+  49:Core/Src/calibration.c ****     uint32_t sector_error = 0;
+  50:Core/Src/calibration.c ****     if (HAL_FLASHEx_Erase(&erase, &sector_error) != HAL_OK) {
+  51:Core/Src/calibration.c ****         HAL_FLASH_Lock();
+  52:Core/Src/calibration.c ****         return false;
+  53:Core/Src/calibration.c ****     }
+  54:Core/Src/calibration.c **** 
+  55:Core/Src/calibration.c ****     FlashData_t data = {
+  56:Core/Src/calibration.c ****         .scale        = scale,
+  57:Core/Src/calibration.c ****         .offset       = offset,
+  58:Core/Src/calibration.c ****         .target_force = target,
+  59:Core/Src/calibration.c ****         .magic        = EEPROM_MAGIC_VALUE,
+  60:Core/Src/calibration.c ****         .angle_target = angle_target
+  61:Core/Src/calibration.c ****     };
+  62:Core/Src/calibration.c **** 
+  63:Core/Src/calibration.c ****     // Записуємо побайтово (HAL_FLASH_Program підтримує BYTE)
+  64:Core/Src/calibration.c ****     const uint8_t *src  = (const uint8_t *)&data;
+  65:Core/Src/calibration.c ****     uint32_t       addr = FLASH_EEPROM_ADDR;
+ARM GAS  /tmp/ccCTT9bQ.s 			page 4
+
+
+  66:Core/Src/calibration.c ****     for (size_t i = 0; i < sizeof(FlashData_t); i++) {
+  67:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+  68:Core/Src/calibration.c ****             HAL_FLASH_Lock();
+  69:Core/Src/calibration.c ****             return false;
+  70:Core/Src/calibration.c ****         }
+  71:Core/Src/calibration.c ****     }
+  72:Core/Src/calibration.c **** 
+  73:Core/Src/calibration.c ****     HAL_FLASH_Lock();
+  74:Core/Src/calibration.c ****     return true;
+  75:Core/Src/calibration.c **** }
+  76:Core/Src/calibration.c **** 
+  77:Core/Src/calibration.c **** // ===== Калібровка =====
+  78:Core/Src/calibration.c **** 
+  79:Core/Src/calibration.c **** static CalibStep s_step           = CALIB_STEP_IDLE;
+  80:Core/Src/calibration.c **** static float     s_known_kg       = 1.0f;             // маса еталону (вводить о
+  81:Core/Src/calibration.c **** static int32_t   s_raw_tare       = 0;                // сирий відлік при нулі
+  82:Core/Src/calibration.c **** static int32_t   s_raw_load       = 0;                // сирий відлік під наван�
+  83:Core/Src/calibration.c **** static float     s_target_for_save = FORCE_DEFAULT_KG; // задане зусилля для збе
+  84:Core/Src/calibration.c **** 
+  85:Core/Src/calibration.c **** static void update_display(void)
+  86:Core/Src/calibration.c **** {
+  68              		.loc 1 86 1 view -0
+  69              		.cfi_startproc
+  70              		@ args = 0, pretend = 0, frame = 24
+  71              		@ frame_needed = 0, uses_anonymous_args = 0
+  72 0000 10B5     		push	{r4, lr}
+  73              	.LCFI0:
+  74              		.cfi_def_cfa_offset 8
+  75              		.cfi_offset 4, -8
+  76              		.cfi_offset 14, -4
+  77 0002 88B0     		sub	sp, sp, #32
+  78              	.LCFI1:
+  79              		.cfi_def_cfa_offset 40
+  87:Core/Src/calibration.c ****     char line[21];
+  80              		.loc 1 87 5 view .LVU1
+  88:Core/Src/calibration.c **** 
+  89:Core/Src/calibration.c ****     switch (s_step) {
+  81              		.loc 1 89 5 view .LVU2
+  82 0004 434B     		ldr	r3, .L11
+  83 0006 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+  84 0008 013B     		subs	r3, r3, #1
+  85 000a 052B     		cmp	r3, #5
+  86 000c 54D8     		bhi	.L1
+  87 000e DFE803F0 		tbb	[pc, r3]
+  88              	.L4:
+  89 0012 03       		.byte	(.L8-.L4)/2
+  90 0013 14       		.byte	(.L7-.L4)/2
+  91 0014 25       		.byte	(.L6-.L4)/2
+  92 0015 42       		.byte	(.L5-.L4)/2
+  93 0016 42       		.byte	(.L5-.L4)/2
+  94 0017 55       		.byte	(.L3-.L4)/2
+  95              		.p2align 1
+  96              	.L8:
+  90:Core/Src/calibration.c ****         case CALIB_STEP_TARE:
+  91:Core/Src/calibration.c ****             display_set_calib_text(0, "=== CALIBRATION ===");
+  97              		.loc 1 91 13 view .LVU3
+  98 0018 3F49     		ldr	r1, .L11+4
+ARM GAS  /tmp/ccCTT9bQ.s 			page 5
+
+
+  99 001a 0020     		movs	r0, #0
+ 100 001c FFF7FEFF 		bl	display_set_calib_text
+ 101              	.LVL0:
+  92:Core/Src/calibration.c ****             display_set_calib_text(1, "Remove all weight");
+ 102              		.loc 1 92 13 view .LVU4
+ 103 0020 3E49     		ldr	r1, .L11+8
+ 104 0022 0120     		movs	r0, #1
+ 105 0024 FFF7FEFF 		bl	display_set_calib_text
+ 106              	.LVL1:
+  93:Core/Src/calibration.c ****             display_set_calib_text(2, "then press ENC BTN");
+ 107              		.loc 1 93 13 view .LVU5
+ 108 0028 3D49     		ldr	r1, .L11+12
+ 109 002a 0220     		movs	r0, #2
+ 110 002c FFF7FEFF 		bl	display_set_calib_text
+ 111              	.LVL2:
+  94:Core/Src/calibration.c ****             display_set_calib_text(3, "");
+ 112              		.loc 1 94 13 view .LVU6
+ 113 0030 3C49     		ldr	r1, .L11+16
+ 114 0032 0320     		movs	r0, #3
+ 115 0034 FFF7FEFF 		bl	display_set_calib_text
+ 116              	.LVL3:
+  95:Core/Src/calibration.c ****             break;
+ 117              		.loc 1 95 13 view .LVU7
+ 118 0038 3EE0     		b	.L1
+ 119              	.L7:
+  96:Core/Src/calibration.c **** 
+  97:Core/Src/calibration.c ****         case CALIB_STEP_LOAD:
+  98:Core/Src/calibration.c ****             display_set_calib_text(0, "=== CALIBRATION ===");
+ 120              		.loc 1 98 13 view .LVU8
+ 121 003a 3749     		ldr	r1, .L11+4
+ 122 003c 0020     		movs	r0, #0
+ 123 003e FFF7FEFF 		bl	display_set_calib_text
+ 124              	.LVL4:
+  99:Core/Src/calibration.c ****             display_set_calib_text(1, "Place known weight");
+ 125              		.loc 1 99 13 view .LVU9
+ 126 0042 3949     		ldr	r1, .L11+20
+ 127 0044 0120     		movs	r0, #1
+ 128 0046 FFF7FEFF 		bl	display_set_calib_text
+ 129              	.LVL5:
+ 100:Core/Src/calibration.c ****             display_set_calib_text(2, "then press ENC BTN");
+ 130              		.loc 1 100 13 view .LVU10
+ 131 004a 3549     		ldr	r1, .L11+12
+ 132 004c 0220     		movs	r0, #2
+ 133 004e FFF7FEFF 		bl	display_set_calib_text
+ 134              	.LVL6:
+ 101:Core/Src/calibration.c ****             display_set_calib_text(3, "");
+ 135              		.loc 1 101 13 view .LVU11
+ 136 0052 3449     		ldr	r1, .L11+16
+ 137 0054 0320     		movs	r0, #3
+ 138 0056 FFF7FEFF 		bl	display_set_calib_text
+ 139              	.LVL7:
+ 102:Core/Src/calibration.c ****             break;
+ 140              		.loc 1 102 13 view .LVU12
+ 141 005a 2DE0     		b	.L1
+ 142              	.L6:
+ 103:Core/Src/calibration.c **** 
+ 104:Core/Src/calibration.c ****         case CALIB_STEP_INPUT_MASS:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 6
+
+
+ 105:Core/Src/calibration.c ****             snprintf(line, sizeof(line), "Mass: %.2f kg", (double)s_known_kg);
+ 143              		.loc 1 105 13 view .LVU13
+ 144 005c 02AC     		add	r4, sp, #8
+ 145 005e 334B     		ldr	r3, .L11+24
+ 146 0060 1868     		ldr	r0, [r3]	@ float
+ 147 0062 FFF7FEFF 		bl	__aeabi_f2d
+ 148              	.LVL8:
+ 149 0066 CDE90001 		strd	r0, [sp]
+ 150 006a 314A     		ldr	r2, .L11+28
+ 151 006c 1521     		movs	r1, #21
+ 152 006e 2046     		mov	r0, r4
+ 153 0070 FFF7FEFF 		bl	snprintf
+ 154              	.LVL9:
+ 106:Core/Src/calibration.c ****             display_set_calib_text(0, "=== CALIBRATION ===");
+ 155              		.loc 1 106 13 view .LVU14
+ 156 0074 2849     		ldr	r1, .L11+4
+ 157 0076 0020     		movs	r0, #0
+ 158 0078 FFF7FEFF 		bl	display_set_calib_text
+ 159              	.LVL10:
+ 107:Core/Src/calibration.c ****             display_set_calib_text(1, "Set weight mass:");
+ 160              		.loc 1 107 13 view .LVU15
+ 161 007c 2D49     		ldr	r1, .L11+32
+ 162 007e 0120     		movs	r0, #1
+ 163 0080 FFF7FEFF 		bl	display_set_calib_text
+ 164              	.LVL11:
+ 108:Core/Src/calibration.c ****             display_set_calib_text(2, line);
+ 165              		.loc 1 108 13 view .LVU16
+ 166 0084 2146     		mov	r1, r4
+ 167 0086 0220     		movs	r0, #2
+ 168 0088 FFF7FEFF 		bl	display_set_calib_text
+ 169              	.LVL12:
+ 109:Core/Src/calibration.c ****             display_set_calib_text(3, "ENC=adjust  BTN=ok");
+ 170              		.loc 1 109 13 view .LVU17
+ 171 008c 2A49     		ldr	r1, .L11+36
+ 172 008e 0320     		movs	r0, #3
+ 173 0090 FFF7FEFF 		bl	display_set_calib_text
+ 174              	.LVL13:
+ 110:Core/Src/calibration.c ****             break;
+ 175              		.loc 1 110 13 view .LVU18
+ 176 0094 10E0     		b	.L1
+ 177              	.L5:
+ 111:Core/Src/calibration.c **** 
+ 112:Core/Src/calibration.c ****         case CALIB_STEP_CALCULATE:
+ 113:Core/Src/calibration.c ****         case CALIB_STEP_SAVE:
+ 114:Core/Src/calibration.c ****             display_set_calib_text(0, "=== CALIBRATION ===");
+ 178              		.loc 1 114 13 view .LVU19
+ 179 0096 2049     		ldr	r1, .L11+4
+ 180 0098 0020     		movs	r0, #0
+ 181 009a FFF7FEFF 		bl	display_set_calib_text
+ 182              	.LVL14:
+ 115:Core/Src/calibration.c ****             display_set_calib_text(1, "Saving...");
+ 183              		.loc 1 115 13 view .LVU20
+ 184 009e 2749     		ldr	r1, .L11+40
+ 185 00a0 0120     		movs	r0, #1
+ 186 00a2 FFF7FEFF 		bl	display_set_calib_text
+ 187              	.LVL15:
+ 116:Core/Src/calibration.c ****             display_set_calib_text(2, "");
+ARM GAS  /tmp/ccCTT9bQ.s 			page 7
+
+
+ 188              		.loc 1 116 13 view .LVU21
+ 189 00a6 1F4C     		ldr	r4, .L11+16
+ 190 00a8 2146     		mov	r1, r4
+ 191 00aa 0220     		movs	r0, #2
+ 192 00ac FFF7FEFF 		bl	display_set_calib_text
+ 193              	.LVL16:
+ 117:Core/Src/calibration.c ****             display_set_calib_text(3, "");
+ 194              		.loc 1 117 13 view .LVU22
+ 195 00b0 2146     		mov	r1, r4
+ 196 00b2 0320     		movs	r0, #3
+ 197 00b4 FFF7FEFF 		bl	display_set_calib_text
+ 198              	.LVL17:
+ 118:Core/Src/calibration.c ****             break;
+ 199              		.loc 1 118 13 view .LVU23
+ 200              	.L1:
+ 119:Core/Src/calibration.c **** 
+ 120:Core/Src/calibration.c ****         case CALIB_STEP_VERIFY: {
+ 121:Core/Src/calibration.c ****             float sc = loadcell_get_scale();
+ 122:Core/Src/calibration.c ****             snprintf(line, sizeof(line), "Scale: %.1f", (double)sc);
+ 123:Core/Src/calibration.c ****             display_set_calib_text(0, "Calibration done!");
+ 124:Core/Src/calibration.c ****             display_set_calib_text(1, line);
+ 125:Core/Src/calibration.c ****             snprintf(line, sizeof(line), "Force: %.2f kg", (double)loadcell_get_kg());
+ 126:Core/Src/calibration.c ****             display_set_calib_text(2, line);
+ 127:Core/Src/calibration.c ****             display_set_calib_text(3, "BTN=exit");
+ 128:Core/Src/calibration.c ****             break;
+ 129:Core/Src/calibration.c ****         }
+ 130:Core/Src/calibration.c **** 
+ 131:Core/Src/calibration.c ****         default:
+ 132:Core/Src/calibration.c ****             break;
+ 133:Core/Src/calibration.c ****     }
+ 134:Core/Src/calibration.c **** }
+ 201              		.loc 1 134 1 is_stmt 0 view .LVU24
+ 202 00b8 08B0     		add	sp, sp, #32
+ 203              	.LCFI2:
+ 204              		.cfi_remember_state
+ 205              		.cfi_def_cfa_offset 8
+ 206              		@ sp needed
+ 207 00ba 10BD     		pop	{r4, pc}
+ 208              	.L3:
+ 209              	.LCFI3:
+ 210              		.cfi_restore_state
+ 211              	.LBB2:
+ 121:Core/Src/calibration.c ****             snprintf(line, sizeof(line), "Scale: %.1f", (double)sc);
+ 212              		.loc 1 121 13 is_stmt 1 view .LVU25
+ 121:Core/Src/calibration.c ****             snprintf(line, sizeof(line), "Scale: %.1f", (double)sc);
+ 213              		.loc 1 121 24 is_stmt 0 view .LVU26
+ 214 00bc FFF7FEFF 		bl	loadcell_get_scale
+ 215              	.LVL18:
+ 216 00c0 10EE100A 		vmov	r0, s0
+ 217              	.LVL19:
+ 122:Core/Src/calibration.c ****             display_set_calib_text(0, "Calibration done!");
+ 218              		.loc 1 122 13 is_stmt 1 view .LVU27
+ 219 00c4 02AC     		add	r4, sp, #8
+ 220 00c6 FFF7FEFF 		bl	__aeabi_f2d
+ 221              	.LVL20:
+ 122:Core/Src/calibration.c ****             display_set_calib_text(0, "Calibration done!");
+ 222              		.loc 1 122 13 is_stmt 0 view .LVU28
+ARM GAS  /tmp/ccCTT9bQ.s 			page 8
+
+
+ 223 00ca CDE90001 		strd	r0, [sp]
+ 224 00ce 1C4A     		ldr	r2, .L11+44
+ 225 00d0 1521     		movs	r1, #21
+ 226 00d2 2046     		mov	r0, r4
+ 227 00d4 FFF7FEFF 		bl	snprintf
+ 228              	.LVL21:
+ 123:Core/Src/calibration.c ****             display_set_calib_text(1, line);
+ 229              		.loc 1 123 13 is_stmt 1 view .LVU29
+ 230 00d8 1A49     		ldr	r1, .L11+48
+ 231 00da 0020     		movs	r0, #0
+ 232 00dc FFF7FEFF 		bl	display_set_calib_text
+ 233              	.LVL22:
+ 124:Core/Src/calibration.c ****             snprintf(line, sizeof(line), "Force: %.2f kg", (double)loadcell_get_kg());
+ 234              		.loc 1 124 13 view .LVU30
+ 235 00e0 2146     		mov	r1, r4
+ 236 00e2 0120     		movs	r0, #1
+ 237 00e4 FFF7FEFF 		bl	display_set_calib_text
+ 238              	.LVL23:
+ 125:Core/Src/calibration.c ****             display_set_calib_text(2, line);
+ 239              		.loc 1 125 13 view .LVU31
+ 125:Core/Src/calibration.c ****             display_set_calib_text(2, line);
+ 240              		.loc 1 125 68 is_stmt 0 view .LVU32
+ 241 00e8 FFF7FEFF 		bl	loadcell_get_kg
+ 242              	.LVL24:
+ 243 00ec 10EE100A 		vmov	r0, s0
+ 125:Core/Src/calibration.c ****             display_set_calib_text(2, line);
+ 244              		.loc 1 125 13 discriminator 1 view .LVU33
+ 245 00f0 FFF7FEFF 		bl	__aeabi_f2d
+ 246              	.LVL25:
+ 247 00f4 CDE90001 		strd	r0, [sp]
+ 248 00f8 134A     		ldr	r2, .L11+52
+ 249 00fa 1521     		movs	r1, #21
+ 250 00fc 2046     		mov	r0, r4
+ 251 00fe FFF7FEFF 		bl	snprintf
+ 252              	.LVL26:
+ 126:Core/Src/calibration.c ****             display_set_calib_text(3, "BTN=exit");
+ 253              		.loc 1 126 13 is_stmt 1 view .LVU34
+ 254 0102 2146     		mov	r1, r4
+ 255 0104 0220     		movs	r0, #2
+ 256 0106 FFF7FEFF 		bl	display_set_calib_text
+ 257              	.LVL27:
+ 127:Core/Src/calibration.c ****             break;
+ 258              		.loc 1 127 13 view .LVU35
+ 259 010a 1049     		ldr	r1, .L11+56
+ 260 010c 0320     		movs	r0, #3
+ 261 010e FFF7FEFF 		bl	display_set_calib_text
+ 262              	.LVL28:
+ 128:Core/Src/calibration.c ****         }
+ 263              		.loc 1 128 13 view .LVU36
+ 264              	.LBE2:
+ 265              		.loc 1 134 1 is_stmt 0 view .LVU37
+ 266 0112 D1E7     		b	.L1
+ 267              	.L12:
+ 268              		.align	2
+ 269              	.L11:
+ 270 0114 00000000 		.word	s_step
+ 271 0118 00000000 		.word	.LC0
+ARM GAS  /tmp/ccCTT9bQ.s 			page 9
+
+
+ 272 011c 14000000 		.word	.LC1
+ 273 0120 28000000 		.word	.LC2
+ 274 0124 3C000000 		.word	.LC3
+ 275 0128 40000000 		.word	.LC4
+ 276 012c 00000000 		.word	s_known_kg
+ 277 0130 54000000 		.word	.LC5
+ 278 0134 64000000 		.word	.LC6
+ 279 0138 78000000 		.word	.LC7
+ 280 013c 8C000000 		.word	.LC8
+ 281 0140 98000000 		.word	.LC9
+ 282 0144 A4000000 		.word	.LC10
+ 283 0148 B8000000 		.word	.LC11
+ 284 014c C8000000 		.word	.LC12
+ 285              		.cfi_endproc
+ 286              	.LFE225:
+ 288              		.section	.text.flash_load,"ax",%progbits
+ 289              		.align	1
+ 290              		.global	flash_load
+ 291              		.syntax unified
+ 292              		.thumb
+ 293              		.thumb_func
+ 295              	flash_load:
+ 296              	.LVL29:
+ 297              	.LFB223:
+  27:Core/Src/calibration.c ****     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
+ 298              		.loc 1 27 1 is_stmt 1 view -0
+ 299              		.cfi_startproc
+ 300              		@ args = 0, pretend = 0, frame = 0
+ 301              		@ frame_needed = 0, uses_anonymous_args = 0
+ 302              		@ link register save eliminated.
+  27:Core/Src/calibration.c ****     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
+ 303              		.loc 1 27 1 is_stmt 0 view .LVU39
+ 304 0000 10B4     		push	{r4}
+ 305              	.LCFI4:
+ 306              		.cfi_def_cfa_offset 4
+ 307              		.cfi_offset 4, -4
+  28:Core/Src/calibration.c ****     if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
+ 308              		.loc 1 28 5 is_stmt 1 view .LVU40
+ 309              	.LVL30:
+  29:Core/Src/calibration.c ****     if (scale)  *scale  = p->scale;
+ 310              		.loc 1 29 5 view .LVU41
+  29:Core/Src/calibration.c ****     if (scale)  *scale  = p->scale;
+ 311              		.loc 1 29 10 is_stmt 0 view .LVU42
+ 312 0002 144C     		ldr	r4, .L24
+ 313 0004 94F80CC0 		ldrb	ip, [r4, #12]	@ zero_extendqisi2
+  29:Core/Src/calibration.c ****     if (scale)  *scale  = p->scale;
+ 314              		.loc 1 29 46 view .LVU43
+ 315 0008 0CF1550C 		add	ip, ip, #85
+ 316 000c 5FFA8CFC 		uxtb	ip, ip
+  29:Core/Src/calibration.c ****     if (scale)  *scale  = p->scale;
+ 317              		.loc 1 29 8 view .LVU44
+ 318 0010 BCF1020F 		cmp	ip, #2
+ 319 0014 19D8     		bhi	.L19
+  30:Core/Src/calibration.c ****     if (offset) *offset = p->offset;
+ 320              		.loc 1 30 5 is_stmt 1 view .LVU45
+  30:Core/Src/calibration.c ****     if (offset) *offset = p->offset;
+ 321              		.loc 1 30 8 is_stmt 0 view .LVU46
+ARM GAS  /tmp/ccCTT9bQ.s 			page 10
+
+
+ 322 0016 08B1     		cbz	r0, .L15
+  30:Core/Src/calibration.c ****     if (offset) *offset = p->offset;
+ 323              		.loc 1 30 17 is_stmt 1 discriminator 1 view .LVU47
+  30:Core/Src/calibration.c ****     if (offset) *offset = p->offset;
+ 324              		.loc 1 30 28 is_stmt 0 discriminator 1 view .LVU48
+ 325 0018 2468     		ldr	r4, [r4]	@ float
+  30:Core/Src/calibration.c ****     if (offset) *offset = p->offset;
+ 326              		.loc 1 30 25 discriminator 1 view .LVU49
+ 327 001a 0460     		str	r4, [r0]	@ float
+ 328              	.L15:
+  31:Core/Src/calibration.c ****     if (target) *target = p->target_force;
+ 329              		.loc 1 31 5 is_stmt 1 view .LVU50
+  31:Core/Src/calibration.c ****     if (target) *target = p->target_force;
+ 330              		.loc 1 31 8 is_stmt 0 view .LVU51
+ 331 001c 11B1     		cbz	r1, .L16
+  31:Core/Src/calibration.c ****     if (target) *target = p->target_force;
+ 332              		.loc 1 31 17 is_stmt 1 discriminator 1 view .LVU52
+  31:Core/Src/calibration.c ****     if (target) *target = p->target_force;
+ 333              		.loc 1 31 28 is_stmt 0 discriminator 1 view .LVU53
+ 334 001e 0D48     		ldr	r0, .L24
+ 335              	.LVL31:
+  31:Core/Src/calibration.c ****     if (target) *target = p->target_force;
+ 336              		.loc 1 31 28 discriminator 1 view .LVU54
+ 337 0020 4068     		ldr	r0, [r0, #4]
+  31:Core/Src/calibration.c ****     if (target) *target = p->target_force;
+ 338              		.loc 1 31 25 discriminator 1 view .LVU55
+ 339 0022 0860     		str	r0, [r1]
+ 340              	.L16:
+  32:Core/Src/calibration.c ****     if (angle_target) {
+ 341              		.loc 1 32 5 is_stmt 1 view .LVU56
+  32:Core/Src/calibration.c ****     if (angle_target) {
+ 342              		.loc 1 32 8 is_stmt 0 view .LVU57
+ 343 0024 12B1     		cbz	r2, .L17
+  32:Core/Src/calibration.c ****     if (angle_target) {
+ 344              		.loc 1 32 17 is_stmt 1 discriminator 1 view .LVU58
+  32:Core/Src/calibration.c ****     if (angle_target) {
+ 345              		.loc 1 32 28 is_stmt 0 discriminator 1 view .LVU59
+ 346 0026 0B49     		ldr	r1, .L24
+ 347              	.LVL32:
+  32:Core/Src/calibration.c ****     if (angle_target) {
+ 348              		.loc 1 32 28 discriminator 1 view .LVU60
+ 349 0028 8968     		ldr	r1, [r1, #8]	@ float
+  32:Core/Src/calibration.c ****     if (angle_target) {
+ 350              		.loc 1 32 25 discriminator 1 view .LVU61
+ 351 002a 1160     		str	r1, [r2]	@ float
+ 352              	.L17:
+  33:Core/Src/calibration.c ****         *angle_target = (p->magic == 0xAD) ? p->angle_target : ANGLE_DEFAULT_DEG;
+ 353              		.loc 1 33 5 is_stmt 1 view .LVU62
+  33:Core/Src/calibration.c ****         *angle_target = (p->magic == 0xAD) ? p->angle_target : ANGLE_DEFAULT_DEG;
+ 354              		.loc 1 33 8 is_stmt 0 view .LVU63
+ 355 002c 7BB1     		cbz	r3, .L20
+  34:Core/Src/calibration.c ****     }
+ 356              		.loc 1 34 9 is_stmt 1 view .LVU64
+  34:Core/Src/calibration.c ****     }
+ 357              		.loc 1 34 27 is_stmt 0 view .LVU65
+ 358 002e 094A     		ldr	r2, .L24
+ 359              	.LVL33:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 11
+
+
+  34:Core/Src/calibration.c ****     }
+ 360              		.loc 1 34 27 view .LVU66
+ 361 0030 127B     		ldrb	r2, [r2, #12]	@ zero_extendqisi2
+  34:Core/Src/calibration.c ****     }
+ 362              		.loc 1 34 62 view .LVU67
+ 363 0032 AD2A     		cmp	r2, #173
+ 364 0034 05D0     		beq	.L23
+  34:Core/Src/calibration.c ****     }
+ 365              		.loc 1 34 62 discriminator 2 view .LVU68
+ 366 0036 084A     		ldr	r2, .L24+4
+ 367              	.L18:
+  34:Core/Src/calibration.c ****     }
+ 368              		.loc 1 34 23 discriminator 4 view .LVU69
+ 369 0038 1A60     		str	r2, [r3]	@ float
+  36:Core/Src/calibration.c **** }
+ 370              		.loc 1 36 12 view .LVU70
+ 371 003a 0120     		movs	r0, #1
+ 372              	.L14:
+  37:Core/Src/calibration.c **** 
+ 373              		.loc 1 37 1 view .LVU71
+ 374 003c 5DF8044B 		ldr	r4, [sp], #4
+ 375 0040 7047     		bx	lr
+ 376              	.L23:
+  34:Core/Src/calibration.c ****     }
+ 377              		.loc 1 34 62 discriminator 1 view .LVU72
+ 378 0042 044A     		ldr	r2, .L24
+ 379 0044 D2F80D20 		ldr	r2, [r2, #13]	@ unaligned
+ 380 0048 F6E7     		b	.L18
+ 381              	.LVL34:
+ 382              	.L19:
+  29:Core/Src/calibration.c ****     if (scale)  *scale  = p->scale;
+ 383              		.loc 1 29 74 discriminator 1 view .LVU73
+ 384 004a 0020     		movs	r0, #0
+ 385              	.LVL35:
+  29:Core/Src/calibration.c ****     if (scale)  *scale  = p->scale;
+ 386              		.loc 1 29 74 discriminator 1 view .LVU74
+ 387 004c F6E7     		b	.L14
+ 388              	.LVL36:
+ 389              	.L20:
+  36:Core/Src/calibration.c **** }
+ 390              		.loc 1 36 12 view .LVU75
+ 391 004e 0120     		movs	r0, #1
+ 392 0050 F4E7     		b	.L14
+ 393              	.L25:
+ 394 0052 00BF     		.align	2
+ 395              	.L24:
+ 396 0054 00000608 		.word	134610944
+ 397 0058 0000B442 		.word	1119092736
+ 398              		.cfi_endproc
+ 399              	.LFE223:
+ 401              		.section	.text.flash_save,"ax",%progbits
+ 402              		.align	1
+ 403              		.global	flash_save
+ 404              		.syntax unified
+ 405              		.thumb
+ 406              		.thumb_func
+ 408              	flash_save:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 12
+
+
+ 409              	.LVL37:
+ 410              	.LFB224:
+  40:Core/Src/calibration.c ****     HAL_FLASH_Unlock();
+ 411              		.loc 1 40 1 is_stmt 1 view -0
+ 412              		.cfi_startproc
+ 413              		@ args = 0, pretend = 0, frame = 48
+ 414              		@ frame_needed = 0, uses_anonymous_args = 0
+  40:Core/Src/calibration.c ****     HAL_FLASH_Unlock();
+ 415              		.loc 1 40 1 is_stmt 0 view .LVU77
+ 416 0000 F0B5     		push	{r4, r5, r6, r7, lr}
+ 417              	.LCFI5:
+ 418              		.cfi_def_cfa_offset 20
+ 419              		.cfi_offset 4, -20
+ 420              		.cfi_offset 5, -16
+ 421              		.cfi_offset 6, -12
+ 422              		.cfi_offset 7, -8
+ 423              		.cfi_offset 14, -4
+ 424 0002 8DB0     		sub	sp, sp, #52
+ 425              	.LCFI6:
+ 426              		.cfi_def_cfa_offset 72
+ 427 0004 10EE107A 		vmov	r7, s0
+ 428 0008 0646     		mov	r6, r0
+ 429 000a 10EE905A 		vmov	r5, s1
+ 430 000e 11EE104A 		vmov	r4, s2
+  41:Core/Src/calibration.c **** 
+ 431              		.loc 1 41 5 is_stmt 1 view .LVU78
+ 432 0012 FFF7FEFF 		bl	HAL_FLASH_Unlock
+ 433              	.LVL38:
+  43:Core/Src/calibration.c ****         .TypeErase    = FLASH_TYPEERASE_SECTORS,
+ 434              		.loc 1 43 5 view .LVU79
+  43:Core/Src/calibration.c ****         .TypeErase    = FLASH_TYPEERASE_SECTORS,
+ 435              		.loc 1 43 28 is_stmt 0 view .LVU80
+ 436 0016 07A8     		add	r0, sp, #28
+ 437 0018 0023     		movs	r3, #0
+ 438 001a 0793     		str	r3, [sp, #28]
+ 439 001c 4360     		str	r3, [r0, #4]
+ 440 001e 8360     		str	r3, [r0, #8]
+ 441 0020 C360     		str	r3, [r0, #12]
+ 442 0022 0361     		str	r3, [r0, #16]
+ 443 0024 0722     		movs	r2, #7
+ 444 0026 0992     		str	r2, [sp, #36]
+ 445 0028 0122     		movs	r2, #1
+ 446 002a 0A92     		str	r2, [sp, #40]
+ 447 002c 0222     		movs	r2, #2
+ 448 002e 0B92     		str	r2, [sp, #44]
+  49:Core/Src/calibration.c ****     if (HAL_FLASHEx_Erase(&erase, &sector_error) != HAL_OK) {
+ 449              		.loc 1 49 5 is_stmt 1 view .LVU81
+  49:Core/Src/calibration.c ****     if (HAL_FLASHEx_Erase(&erase, &sector_error) != HAL_OK) {
+ 450              		.loc 1 49 14 is_stmt 0 view .LVU82
+ 451 0030 0693     		str	r3, [sp, #24]
+  50:Core/Src/calibration.c ****         HAL_FLASH_Lock();
+ 452              		.loc 1 50 5 is_stmt 1 view .LVU83
+  50:Core/Src/calibration.c ****         HAL_FLASH_Lock();
+ 453              		.loc 1 50 9 is_stmt 0 view .LVU84
+ 454 0032 06A9     		add	r1, sp, #24
+ 455 0034 FFF7FEFF 		bl	HAL_FLASHEx_Erase
+ 456              	.LVL39:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 13
+
+
+  50:Core/Src/calibration.c ****         HAL_FLASH_Lock();
+ 457              		.loc 1 50 8 discriminator 1 view .LVU85
+ 458 0038 D8B9     		cbnz	r0, .L33
+  55:Core/Src/calibration.c ****         .scale        = scale,
+ 459              		.loc 1 55 5 is_stmt 1 view .LVU86
+  55:Core/Src/calibration.c ****         .scale        = scale,
+ 460              		.loc 1 55 17 is_stmt 0 view .LVU87
+ 461 003a 0197     		str	r7, [sp, #4]	@ float
+ 462 003c 0296     		str	r6, [sp, #8]
+ 463 003e 0395     		str	r5, [sp, #12]	@ float
+ 464 0040 AD23     		movs	r3, #173
+ 465 0042 8DF81030 		strb	r3, [sp, #16]
+ 466 0046 CDF81140 		str	r4, [sp, #17]	@ unaligned
+  64:Core/Src/calibration.c ****     uint32_t       addr = FLASH_EEPROM_ADDR;
+ 467              		.loc 1 64 5 is_stmt 1 view .LVU88
+ 468              	.LVL40:
+  65:Core/Src/calibration.c ****     for (size_t i = 0; i < sizeof(FlashData_t); i++) {
+ 469              		.loc 1 65 5 view .LVU89
+  66:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+ 470              		.loc 1 66 5 view .LVU90
+ 471              	.LBB3:
+  66:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+ 472              		.loc 1 66 10 view .LVU91
+  66:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+ 473              		.loc 1 66 17 is_stmt 0 view .LVU92
+ 474 004a 0024     		movs	r4, #0
+ 475              	.LVL41:
+ 476              	.L29:
+  66:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+ 477              		.loc 1 66 26 is_stmt 1 discriminator 1 view .LVU93
+ 478 004c 102C     		cmp	r4, #16
+ 479 004e 18D8     		bhi	.L34
+  67:Core/Src/calibration.c ****             HAL_FLASH_Lock();
+ 480              		.loc 1 67 9 view .LVU94
+  67:Core/Src/calibration.c ****             HAL_FLASH_Lock();
+ 481              		.loc 1 67 13 is_stmt 0 view .LVU95
+ 482 0050 0020     		movs	r0, #0
+ 483 0052 04F13003 		add	r3, r4, #48
+ 484 0056 0DEB0302 		add	r2, sp, r3
+ 485 005a 12F82C2C 		ldrb	r2, [r2, #-44]	@ zero_extendqisi2
+ 486 005e 0346     		mov	r3, r0
+ 487 0060 04F10061 		add	r1, r4, #134217728
+ 488 0064 01F5C021 		add	r1, r1, #393216
+ 489 0068 FFF7FEFF 		bl	HAL_FLASH_Program
+ 490              	.LVL42:
+  67:Core/Src/calibration.c ****             HAL_FLASH_Lock();
+ 491              		.loc 1 67 12 discriminator 1 view .LVU96
+ 492 006c 28B9     		cbnz	r0, .L35
+  66:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+ 493              		.loc 1 66 50 is_stmt 1 discriminator 2 view .LVU97
+ 494 006e 0134     		adds	r4, r4, #1
+ 495              	.LVL43:
+  66:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+ 496              		.loc 1 66 50 is_stmt 0 discriminator 2 view .LVU98
+ 497 0070 ECE7     		b	.L29
+ 498              	.LVL44:
+ 499              	.L33:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 14
+
+
+  66:Core/Src/calibration.c ****         if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE, addr + i, src[i]) != HAL_OK) {
+ 500              		.loc 1 66 50 discriminator 2 view .LVU99
+ 501              	.LBE3:
+  51:Core/Src/calibration.c ****         return false;
+ 502              		.loc 1 51 9 is_stmt 1 view .LVU100
+ 503 0072 FFF7FEFF 		bl	HAL_FLASH_Lock
+ 504              	.LVL45:
+  52:Core/Src/calibration.c ****     }
+ 505              		.loc 1 52 9 view .LVU101
+  52:Core/Src/calibration.c ****     }
+ 506              		.loc 1 52 16 is_stmt 0 view .LVU102
+ 507 0076 0020     		movs	r0, #0
+ 508 0078 06E0     		b	.L28
+ 509              	.LVL46:
+ 510              	.L35:
+ 511              	.LBB4:
+  68:Core/Src/calibration.c ****             return false;
+ 512              		.loc 1 68 13 is_stmt 1 view .LVU103
+ 513 007a FFF7FEFF 		bl	HAL_FLASH_Lock
+ 514              	.LVL47:
+  69:Core/Src/calibration.c ****         }
+ 515              		.loc 1 69 13 view .LVU104
+  69:Core/Src/calibration.c ****         }
+ 516              		.loc 1 69 20 is_stmt 0 view .LVU105
+ 517 007e 0020     		movs	r0, #0
+ 518 0080 02E0     		b	.L28
+ 519              	.L34:
+ 520              	.LBE4:
+  73:Core/Src/calibration.c ****     return true;
+ 521              		.loc 1 73 5 is_stmt 1 view .LVU106
+ 522 0082 FFF7FEFF 		bl	HAL_FLASH_Lock
+ 523              	.LVL48:
+  74:Core/Src/calibration.c **** }
+ 524              		.loc 1 74 5 view .LVU107
+  74:Core/Src/calibration.c **** }
+ 525              		.loc 1 74 12 is_stmt 0 view .LVU108
+ 526 0086 0120     		movs	r0, #1
+ 527              	.LVL49:
+ 528              	.L28:
+  75:Core/Src/calibration.c **** 
+ 529              		.loc 1 75 1 view .LVU109
+ 530 0088 0DB0     		add	sp, sp, #52
+ 531              	.LCFI7:
+ 532              		.cfi_def_cfa_offset 20
+ 533              		@ sp needed
+ 534 008a F0BD     		pop	{r4, r5, r6, r7, pc}
+  75:Core/Src/calibration.c **** 
+ 535              		.loc 1 75 1 view .LVU110
+ 536              		.cfi_endproc
+ 537              	.LFE224:
+ 539              		.section	.text.calib_init,"ax",%progbits
+ 540              		.align	1
+ 541              		.global	calib_init
+ 542              		.syntax unified
+ 543              		.thumb
+ 544              		.thumb_func
+ 546              	calib_init:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 15
+
+
+ 547              	.LFB226:
+ 135:Core/Src/calibration.c **** 
+ 136:Core/Src/calibration.c **** void calib_init(void)
+ 137:Core/Src/calibration.c **** {
+ 548              		.loc 1 137 1 is_stmt 1 view -0
+ 549              		.cfi_startproc
+ 550              		@ args = 0, pretend = 0, frame = 0
+ 551              		@ frame_needed = 0, uses_anonymous_args = 0
+ 552              		@ link register save eliminated.
+ 138:Core/Src/calibration.c ****     s_step     = CALIB_STEP_IDLE;
+ 553              		.loc 1 138 5 view .LVU112
+ 554              		.loc 1 138 16 is_stmt 0 view .LVU113
+ 555 0000 034B     		ldr	r3, .L37
+ 556 0002 0022     		movs	r2, #0
+ 557 0004 1A70     		strb	r2, [r3]
+ 139:Core/Src/calibration.c ****     s_known_kg = 1.0f;
+ 558              		.loc 1 139 5 is_stmt 1 view .LVU114
+ 559              		.loc 1 139 16 is_stmt 0 view .LVU115
+ 560 0006 034B     		ldr	r3, .L37+4
+ 561 0008 4FF07E52 		mov	r2, #1065353216
+ 562 000c 1A60     		str	r2, [r3]	@ float
+ 140:Core/Src/calibration.c **** }
+ 563              		.loc 1 140 1 view .LVU116
+ 564 000e 7047     		bx	lr
+ 565              	.L38:
+ 566              		.align	2
+ 567              	.L37:
+ 568 0010 00000000 		.word	s_step
+ 569 0014 00000000 		.word	s_known_kg
+ 570              		.cfi_endproc
+ 571              	.LFE226:
+ 573              		.section	.text.calib_start,"ax",%progbits
+ 574              		.align	1
+ 575              		.global	calib_start
+ 576              		.syntax unified
+ 577              		.thumb
+ 578              		.thumb_func
+ 580              	calib_start:
+ 581              	.LVL50:
+ 582              	.LFB227:
+ 141:Core/Src/calibration.c **** 
+ 142:Core/Src/calibration.c **** void calib_start(float target_kg)
+ 143:Core/Src/calibration.c **** {
+ 583              		.loc 1 143 1 is_stmt 1 view -0
+ 584              		.cfi_startproc
+ 585              		@ args = 0, pretend = 0, frame = 0
+ 586              		@ frame_needed = 0, uses_anonymous_args = 0
+ 587              		.loc 1 143 1 is_stmt 0 view .LVU118
+ 588 0000 08B5     		push	{r3, lr}
+ 589              	.LCFI8:
+ 590              		.cfi_def_cfa_offset 8
+ 591              		.cfi_offset 3, -8
+ 592              		.cfi_offset 14, -4
+ 144:Core/Src/calibration.c ****     s_step           = CALIB_STEP_TARE;
+ 593              		.loc 1 144 5 is_stmt 1 view .LVU119
+ 594              		.loc 1 144 22 is_stmt 0 view .LVU120
+ 595 0002 084B     		ldr	r3, .L41
+ARM GAS  /tmp/ccCTT9bQ.s 			page 16
+
+
+ 596 0004 0122     		movs	r2, #1
+ 597 0006 1A70     		strb	r2, [r3]
+ 145:Core/Src/calibration.c ****     s_known_kg       = 1.0f;
+ 598              		.loc 1 145 5 is_stmt 1 view .LVU121
+ 599              		.loc 1 145 22 is_stmt 0 view .LVU122
+ 600 0008 074B     		ldr	r3, .L41+4
+ 601 000a 4FF07E52 		mov	r2, #1065353216
+ 602 000e 1A60     		str	r2, [r3]	@ float
+ 146:Core/Src/calibration.c ****     s_target_for_save = target_kg;
+ 603              		.loc 1 146 5 is_stmt 1 view .LVU123
+ 604              		.loc 1 146 23 is_stmt 0 view .LVU124
+ 605 0010 064B     		ldr	r3, .L41+8
+ 606 0012 83ED000A 		vstr.32	s0, [r3]
+ 147:Core/Src/calibration.c ****     display_set_screen(SCREEN_CALIBRATION);
+ 607              		.loc 1 147 5 is_stmt 1 view .LVU125
+ 608 0016 0420     		movs	r0, #4
+ 609 0018 FFF7FEFF 		bl	display_set_screen
+ 610              	.LVL51:
+ 148:Core/Src/calibration.c ****     update_display();
+ 611              		.loc 1 148 5 view .LVU126
+ 612 001c FFF7FEFF 		bl	update_display
+ 613              	.LVL52:
+ 149:Core/Src/calibration.c **** }
+ 614              		.loc 1 149 1 is_stmt 0 view .LVU127
+ 615 0020 08BD     		pop	{r3, pc}
+ 616              	.L42:
+ 617 0022 00BF     		.align	2
+ 618              	.L41:
+ 619 0024 00000000 		.word	s_step
+ 620 0028 00000000 		.word	s_known_kg
+ 621 002c 00000000 		.word	s_target_for_save
+ 622              		.cfi_endproc
+ 623              	.LFE227:
+ 625              		.section	.text.calib_is_active,"ax",%progbits
+ 626              		.align	1
+ 627              		.global	calib_is_active
+ 628              		.syntax unified
+ 629              		.thumb
+ 630              		.thumb_func
+ 632              	calib_is_active:
+ 633              	.LFB228:
+ 150:Core/Src/calibration.c **** 
+ 151:Core/Src/calibration.c **** bool calib_is_active(void)
+ 152:Core/Src/calibration.c **** {
+ 634              		.loc 1 152 1 is_stmt 1 view -0
+ 635              		.cfi_startproc
+ 636              		@ args = 0, pretend = 0, frame = 0
+ 637              		@ frame_needed = 0, uses_anonymous_args = 0
+ 638              		@ link register save eliminated.
+ 153:Core/Src/calibration.c ****     return (s_step != CALIB_STEP_IDLE && s_step != CALIB_STEP_DONE);
+ 639              		.loc 1 153 5 view .LVU129
+ 640              		.loc 1 153 20 is_stmt 0 view .LVU130
+ 641 0000 054B     		ldr	r3, .L48
+ 642 0002 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 643              		.loc 1 153 39 view .LVU131
+ 644 0004 2BB1     		cbz	r3, .L45
+ 645              		.loc 1 153 39 discriminator 1 view .LVU132
+ARM GAS  /tmp/ccCTT9bQ.s 			page 17
+
+
+ 646 0006 072B     		cmp	r3, #7
+ 647 0008 01D0     		beq	.L47
+ 648              		.loc 1 153 39 discriminator 3 view .LVU133
+ 649 000a 0120     		movs	r0, #1
+ 154:Core/Src/calibration.c **** }
+ 650              		.loc 1 154 1 view .LVU134
+ 651 000c 7047     		bx	lr
+ 652              	.L47:
+ 153:Core/Src/calibration.c ****     return (s_step != CALIB_STEP_IDLE && s_step != CALIB_STEP_DONE);
+ 653              		.loc 1 153 39 discriminator 4 view .LVU135
+ 654 000e 0020     		movs	r0, #0
+ 655 0010 7047     		bx	lr
+ 656              	.L45:
+ 657 0012 0020     		movs	r0, #0
+ 658 0014 7047     		bx	lr
+ 659              	.L49:
+ 660 0016 00BF     		.align	2
+ 661              	.L48:
+ 662 0018 00000000 		.word	s_step
+ 663              		.cfi_endproc
+ 664              	.LFE228:
+ 666              		.section	.text.calib_get_step,"ax",%progbits
+ 667              		.align	1
+ 668              		.global	calib_get_step
+ 669              		.syntax unified
+ 670              		.thumb
+ 671              		.thumb_func
+ 673              	calib_get_step:
+ 674              	.LFB229:
+ 155:Core/Src/calibration.c **** 
+ 156:Core/Src/calibration.c **** CalibStep calib_get_step(void)
+ 157:Core/Src/calibration.c **** {
+ 675              		.loc 1 157 1 is_stmt 1 view -0
+ 676              		.cfi_startproc
+ 677              		@ args = 0, pretend = 0, frame = 0
+ 678              		@ frame_needed = 0, uses_anonymous_args = 0
+ 679              		@ link register save eliminated.
+ 158:Core/Src/calibration.c ****     return s_step;
+ 680              		.loc 1 158 5 view .LVU137
+ 159:Core/Src/calibration.c **** }
+ 681              		.loc 1 159 1 is_stmt 0 view .LVU138
+ 682 0000 014B     		ldr	r3, .L51
+ 683 0002 1878     		ldrb	r0, [r3]	@ zero_extendqisi2
+ 684 0004 7047     		bx	lr
+ 685              	.L52:
+ 686 0006 00BF     		.align	2
+ 687              	.L51:
+ 688 0008 00000000 		.word	s_step
+ 689              		.cfi_endproc
+ 690              	.LFE229:
+ 692              		.section	.text.calib_confirm,"ax",%progbits
+ 693              		.align	1
+ 694              		.global	calib_confirm
+ 695              		.syntax unified
+ 696              		.thumb
+ 697              		.thumb_func
+ 699              	calib_confirm:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 18
+
+
+ 700              	.LFB230:
+ 160:Core/Src/calibration.c **** 
+ 161:Core/Src/calibration.c **** void calib_confirm(void)
+ 162:Core/Src/calibration.c **** {
+ 701              		.loc 1 162 1 is_stmt 1 view -0
+ 702              		.cfi_startproc
+ 703              		@ args = 0, pretend = 0, frame = 0
+ 704              		@ frame_needed = 0, uses_anonymous_args = 0
+ 705 0000 08B5     		push	{r3, lr}
+ 706              	.LCFI9:
+ 707              		.cfi_def_cfa_offset 8
+ 708              		.cfi_offset 3, -8
+ 709              		.cfi_offset 14, -4
+ 163:Core/Src/calibration.c ****     switch (s_step) {
+ 710              		.loc 1 163 5 view .LVU140
+ 711 0002 154B     		ldr	r3, .L62
+ 712 0004 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 713 0006 013B     		subs	r3, r3, #1
+ 714 0008 052B     		cmp	r3, #5
+ 715 000a 0FD8     		bhi	.L53
+ 716 000c DFE803F0 		tbb	[pc, r3]
+ 717              	.L56:
+ 718 0010 03       		.byte	(.L59-.L56)/2
+ 719 0011 0F       		.byte	(.L58-.L56)/2
+ 720 0012 19       		.byte	(.L57-.L56)/2
+ 721 0013 0E       		.byte	(.L53-.L56)/2
+ 722 0014 0E       		.byte	(.L53-.L56)/2
+ 723 0015 1D       		.byte	(.L55-.L56)/2
+ 724              		.p2align 1
+ 725              	.L59:
+ 164:Core/Src/calibration.c ****         case CALIB_STEP_TARE:
+ 165:Core/Src/calibration.c ****             loadcell_tare();
+ 726              		.loc 1 165 13 view .LVU141
+ 727 0016 FFF7FEFF 		bl	loadcell_tare
+ 728              	.LVL53:
+ 166:Core/Src/calibration.c ****             s_raw_tare = loadcell_read_raw();
+ 729              		.loc 1 166 13 view .LVU142
+ 730              		.loc 1 166 26 is_stmt 0 view .LVU143
+ 731 001a FFF7FEFF 		bl	loadcell_read_raw
+ 732              	.LVL54:
+ 733              		.loc 1 166 24 discriminator 1 view .LVU144
+ 734 001e 0F4B     		ldr	r3, .L62+4
+ 735 0020 1860     		str	r0, [r3]
+ 167:Core/Src/calibration.c ****             s_step = CALIB_STEP_LOAD;
+ 736              		.loc 1 167 13 is_stmt 1 view .LVU145
+ 737              		.loc 1 167 20 is_stmt 0 view .LVU146
+ 738 0022 0D4B     		ldr	r3, .L62
+ 739 0024 0222     		movs	r2, #2
+ 740 0026 1A70     		strb	r2, [r3]
+ 168:Core/Src/calibration.c ****             update_display();
+ 741              		.loc 1 168 13 is_stmt 1 view .LVU147
+ 742 0028 FFF7FEFF 		bl	update_display
+ 743              	.LVL55:
+ 169:Core/Src/calibration.c ****             break;
+ 744              		.loc 1 169 13 view .LVU148
+ 745              	.L53:
+ 170:Core/Src/calibration.c **** 
+ARM GAS  /tmp/ccCTT9bQ.s 			page 19
+
+
+ 171:Core/Src/calibration.c ****         case CALIB_STEP_LOAD:
+ 172:Core/Src/calibration.c ****             s_raw_load = loadcell_read_raw();
+ 173:Core/Src/calibration.c ****             s_step = CALIB_STEP_INPUT_MASS;
+ 174:Core/Src/calibration.c ****             update_display();
+ 175:Core/Src/calibration.c ****             break;
+ 176:Core/Src/calibration.c **** 
+ 177:Core/Src/calibration.c ****         case CALIB_STEP_INPUT_MASS:
+ 178:Core/Src/calibration.c ****             s_step = CALIB_STEP_CALCULATE;
+ 179:Core/Src/calibration.c ****             break;
+ 180:Core/Src/calibration.c **** 
+ 181:Core/Src/calibration.c ****         case CALIB_STEP_VERIFY:
+ 182:Core/Src/calibration.c ****             s_step = CALIB_STEP_DONE;
+ 183:Core/Src/calibration.c ****             display_set_screen(SCREEN_MAIN);
+ 184:Core/Src/calibration.c ****             break;
+ 185:Core/Src/calibration.c **** 
+ 186:Core/Src/calibration.c ****         default:
+ 187:Core/Src/calibration.c ****             break;
+ 188:Core/Src/calibration.c ****     }
+ 189:Core/Src/calibration.c **** }
+ 746              		.loc 1 189 1 is_stmt 0 view .LVU149
+ 747 002c 08BD     		pop	{r3, pc}
+ 748              	.L58:
+ 172:Core/Src/calibration.c ****             s_step = CALIB_STEP_INPUT_MASS;
+ 749              		.loc 1 172 13 is_stmt 1 view .LVU150
+ 172:Core/Src/calibration.c ****             s_step = CALIB_STEP_INPUT_MASS;
+ 750              		.loc 1 172 26 is_stmt 0 view .LVU151
+ 751 002e FFF7FEFF 		bl	loadcell_read_raw
+ 752              	.LVL56:
+ 172:Core/Src/calibration.c ****             s_step = CALIB_STEP_INPUT_MASS;
+ 753              		.loc 1 172 24 discriminator 1 view .LVU152
+ 754 0032 0B4B     		ldr	r3, .L62+8
+ 755 0034 1860     		str	r0, [r3]
+ 173:Core/Src/calibration.c ****             update_display();
+ 756              		.loc 1 173 13 is_stmt 1 view .LVU153
+ 173:Core/Src/calibration.c ****             update_display();
+ 757              		.loc 1 173 20 is_stmt 0 view .LVU154
+ 758 0036 084B     		ldr	r3, .L62
+ 759 0038 0322     		movs	r2, #3
+ 760 003a 1A70     		strb	r2, [r3]
+ 174:Core/Src/calibration.c ****             break;
+ 761              		.loc 1 174 13 is_stmt 1 view .LVU155
+ 762 003c FFF7FEFF 		bl	update_display
+ 763              	.LVL57:
+ 175:Core/Src/calibration.c **** 
+ 764              		.loc 1 175 13 view .LVU156
+ 765 0040 F4E7     		b	.L53
+ 766              	.L57:
+ 178:Core/Src/calibration.c ****             break;
+ 767              		.loc 1 178 13 view .LVU157
+ 178:Core/Src/calibration.c ****             break;
+ 768              		.loc 1 178 20 is_stmt 0 view .LVU158
+ 769 0042 054B     		ldr	r3, .L62
+ 770 0044 0422     		movs	r2, #4
+ 771 0046 1A70     		strb	r2, [r3]
+ 179:Core/Src/calibration.c **** 
+ 772              		.loc 1 179 13 is_stmt 1 view .LVU159
+ 773 0048 F0E7     		b	.L53
+ARM GAS  /tmp/ccCTT9bQ.s 			page 20
+
+
+ 774              	.L55:
+ 182:Core/Src/calibration.c ****             display_set_screen(SCREEN_MAIN);
+ 775              		.loc 1 182 13 view .LVU160
+ 182:Core/Src/calibration.c ****             display_set_screen(SCREEN_MAIN);
+ 776              		.loc 1 182 20 is_stmt 0 view .LVU161
+ 777 004a 034B     		ldr	r3, .L62
+ 778 004c 0722     		movs	r2, #7
+ 779 004e 1A70     		strb	r2, [r3]
+ 183:Core/Src/calibration.c ****             break;
+ 780              		.loc 1 183 13 is_stmt 1 view .LVU162
+ 781 0050 0020     		movs	r0, #0
+ 782 0052 FFF7FEFF 		bl	display_set_screen
+ 783              	.LVL58:
+ 184:Core/Src/calibration.c **** 
+ 784              		.loc 1 184 13 view .LVU163
+ 785              		.loc 1 189 1 is_stmt 0 view .LVU164
+ 786 0056 E9E7     		b	.L53
+ 787              	.L63:
+ 788              		.align	2
+ 789              	.L62:
+ 790 0058 00000000 		.word	s_step
+ 791 005c 00000000 		.word	s_raw_tare
+ 792 0060 00000000 		.word	s_raw_load
+ 793              		.cfi_endproc
+ 794              	.LFE230:
+ 796              		.section	.text.calib_adjust,"ax",%progbits
+ 797              		.align	1
+ 798              		.global	calib_adjust
+ 799              		.syntax unified
+ 800              		.thumb
+ 801              		.thumb_func
+ 803              	calib_adjust:
+ 804              	.LVL59:
+ 805              	.LFB231:
+ 190:Core/Src/calibration.c **** 
+ 191:Core/Src/calibration.c **** void calib_adjust(int8_t delta)
+ 192:Core/Src/calibration.c **** {
+ 806              		.loc 1 192 1 is_stmt 1 view -0
+ 807              		.cfi_startproc
+ 808              		@ args = 0, pretend = 0, frame = 8
+ 809              		@ frame_needed = 0, uses_anonymous_args = 0
+ 810              		.loc 1 192 1 is_stmt 0 view .LVU166
+ 811 0000 00B5     		push	{lr}
+ 812              	.LCFI10:
+ 813              		.cfi_def_cfa_offset 4
+ 814              		.cfi_offset 14, -4
+ 815 0002 83B0     		sub	sp, sp, #12
+ 816              	.LCFI11:
+ 817              		.cfi_def_cfa_offset 16
+ 818 0004 0190     		str	r0, [sp, #4]
+ 193:Core/Src/calibration.c ****     if (s_step == CALIB_STEP_INPUT_MASS) {
+ 819              		.loc 1 193 5 is_stmt 1 view .LVU167
+ 820              		.loc 1 193 16 is_stmt 0 view .LVU168
+ 821 0006 154B     		ldr	r3, .L74
+ 822 0008 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 823              		.loc 1 193 8 view .LVU169
+ 824 000a 032B     		cmp	r3, #3
+ARM GAS  /tmp/ccCTT9bQ.s 			page 21
+
+
+ 825 000c 01D0     		beq	.L73
+ 826              	.LVL60:
+ 827              	.L64:
+ 194:Core/Src/calibration.c ****         s_known_kg += (float)delta * 0.1f;
+ 195:Core/Src/calibration.c ****         if (s_known_kg < 0.1f) s_known_kg = 0.1f;
+ 196:Core/Src/calibration.c ****         if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+ 197:Core/Src/calibration.c ****         update_display();
+ 198:Core/Src/calibration.c ****     }
+ 199:Core/Src/calibration.c **** }
+ 828              		.loc 1 199 1 view .LVU170
+ 829 000e 03B0     		add	sp, sp, #12
+ 830              	.LCFI12:
+ 831              		.cfi_remember_state
+ 832              		.cfi_def_cfa_offset 4
+ 833              		@ sp needed
+ 834 0010 00BD     		pop	{pc}
+ 835              	.LVL61:
+ 836              	.L73:
+ 837              	.LCFI13:
+ 838              		.cfi_restore_state
+ 194:Core/Src/calibration.c ****         s_known_kg += (float)delta * 0.1f;
+ 839              		.loc 1 194 9 is_stmt 1 view .LVU171
+ 194:Core/Src/calibration.c ****         s_known_kg += (float)delta * 0.1f;
+ 840              		.loc 1 194 23 is_stmt 0 view .LVU172
+ 841 0012 07EE900A 		vmov	s15, r0	@ int
+ 842 0016 F8EEE77A 		vcvt.f32.s32	s15, s15
+ 194:Core/Src/calibration.c ****         s_known_kg += (float)delta * 0.1f;
+ 843              		.loc 1 194 36 view .LVU173
+ 844 001a 9FED117A 		vldr.32	s14, .L74+4
+ 845 001e 67EE877A 		vmul.f32	s15, s15, s14
+ 194:Core/Src/calibration.c ****         s_known_kg += (float)delta * 0.1f;
+ 846              		.loc 1 194 20 view .LVU174
+ 847 0022 104B     		ldr	r3, .L74+8
+ 848 0024 D3ED006A 		vldr.32	s13, [r3]
+ 849 0028 77EEA67A 		vadd.f32	s15, s15, s13
+ 850 002c C3ED007A 		vstr.32	s15, [r3]
+ 195:Core/Src/calibration.c ****         if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+ 851              		.loc 1 195 9 is_stmt 1 view .LVU175
+ 195:Core/Src/calibration.c ****         if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+ 852              		.loc 1 195 12 is_stmt 0 view .LVU176
+ 853 0030 F4EEC77A 		vcmpe.f32	s15, s14
+ 854 0034 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 855 0038 01D5     		bpl	.L66
+ 195:Core/Src/calibration.c ****         if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+ 856              		.loc 1 195 32 is_stmt 1 discriminator 1 view .LVU177
+ 195:Core/Src/calibration.c ****         if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+ 857              		.loc 1 195 43 is_stmt 0 discriminator 1 view .LVU178
+ 858 003a 83ED007A 		vstr.32	s14, [r3]
+ 859              	.L66:
+ 196:Core/Src/calibration.c ****         update_display();
+ 860              		.loc 1 196 9 is_stmt 1 view .LVU179
+ 196:Core/Src/calibration.c ****         update_display();
+ 861              		.loc 1 196 24 is_stmt 0 view .LVU180
+ 862 003e 094B     		ldr	r3, .L74+8
+ 863 0040 93ED007A 		vldr.32	s14, [r3]
+ 196:Core/Src/calibration.c ****         update_display();
+ 864              		.loc 1 196 12 view .LVU181
+ARM GAS  /tmp/ccCTT9bQ.s 			page 22
+
+
+ 865 0044 DFED087A 		vldr.32	s15, .L74+12
+ 866 0048 B4EEE77A 		vcmpe.f32	s14, s15
+ 867 004c F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 868 0050 01DD     		ble	.L68
+ 196:Core/Src/calibration.c ****         update_display();
+ 869              		.loc 1 196 33 is_stmt 1 discriminator 1 view .LVU182
+ 196:Core/Src/calibration.c ****         update_display();
+ 870              		.loc 1 196 44 is_stmt 0 discriminator 1 view .LVU183
+ 871 0052 C3ED007A 		vstr.32	s15, [r3]
+ 872              	.L68:
+ 197:Core/Src/calibration.c ****     }
+ 873              		.loc 1 197 9 is_stmt 1 view .LVU184
+ 874 0056 FFF7FEFF 		bl	update_display
+ 875              	.LVL62:
+ 876              		.loc 1 199 1 is_stmt 0 view .LVU185
+ 877 005a D8E7     		b	.L64
+ 878              	.L75:
+ 879              		.align	2
+ 880              	.L74:
+ 881 005c 00000000 		.word	s_step
+ 882 0060 CDCCCC3D 		.word	1036831949
+ 883 0064 00000000 		.word	s_known_kg
+ 884 0068 00004842 		.word	1112014848
+ 885              		.cfi_endproc
+ 886              	.LFE231:
+ 888              		.section	.rodata.calib_update.str1.4,"aMS",%progbits,1
+ 889              		.align	2
+ 890              	.LC13:
+ 891 0000 466C6173 		.ascii	"Flash save failed\000"
+ 891      68207361 
+ 891      76652066 
+ 891      61696C65 
+ 891      6400
+ 892              		.section	.text.calib_update,"ax",%progbits
+ 893              		.align	1
+ 894              		.global	calib_update
+ 895              		.syntax unified
+ 896              		.thumb
+ 897              		.thumb_func
+ 899              	calib_update:
+ 900              	.LFB232:
+ 200:Core/Src/calibration.c **** 
+ 201:Core/Src/calibration.c **** void calib_update(void)
+ 202:Core/Src/calibration.c **** {
+ 901              		.loc 1 202 1 is_stmt 1 view -0
+ 902              		.cfi_startproc
+ 903              		@ args = 0, pretend = 0, frame = 0
+ 904              		@ frame_needed = 0, uses_anonymous_args = 0
+ 905 0000 10B5     		push	{r4, lr}
+ 906              	.LCFI14:
+ 907              		.cfi_def_cfa_offset 8
+ 908              		.cfi_offset 4, -8
+ 909              		.cfi_offset 14, -4
+ 910 0002 2DED028B 		vpush.64	{d8}
+ 911              	.LCFI15:
+ 912              		.cfi_def_cfa_offset 16
+ 913              		.cfi_offset 80, -16
+ARM GAS  /tmp/ccCTT9bQ.s 			page 23
+
+
+ 914              		.cfi_offset 81, -12
+ 203:Core/Src/calibration.c ****     switch (s_step) {
+ 915              		.loc 1 203 5 view .LVU187
+ 916 0006 264B     		ldr	r3, .L86
+ 917 0008 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 918 000a 042B     		cmp	r3, #4
+ 919 000c 1DD0     		beq	.L77
+ 920 000e 052B     		cmp	r3, #5
+ 921 0010 2ED1     		bne	.L76
+ 204:Core/Src/calibration.c ****         case CALIB_STEP_CALCULATE: {
+ 205:Core/Src/calibration.c ****             int32_t delta = s_raw_load - s_raw_tare;
+ 206:Core/Src/calibration.c ****             if (delta != 0 && s_known_kg > 0.0f) {
+ 207:Core/Src/calibration.c ****                 float new_scale = (float)delta / s_known_kg;
+ 208:Core/Src/calibration.c ****                 loadcell_set_scale(new_scale);
+ 209:Core/Src/calibration.c ****                 loadcell_set_offset(s_raw_tare);
+ 210:Core/Src/calibration.c ****             }
+ 211:Core/Src/calibration.c ****             s_step = CALIB_STEP_SAVE;
+ 212:Core/Src/calibration.c ****             update_display();
+ 213:Core/Src/calibration.c ****             break;
+ 214:Core/Src/calibration.c ****         }
+ 215:Core/Src/calibration.c **** 
+ 216:Core/Src/calibration.c ****         case CALIB_STEP_SAVE: {
+ 217:Core/Src/calibration.c ****             if (flash_save(loadcell_get_scale(), loadcell_get_offset(),
+ 922              		.loc 1 217 13 view .LVU188
+ 923              		.loc 1 217 17 is_stmt 0 view .LVU189
+ 924 0012 FFF7FEFF 		bl	loadcell_get_scale
+ 925              	.LVL63:
+ 926 0016 B0EE408A 		vmov.f32	s16, s0
+ 927              		.loc 1 217 17 discriminator 1 view .LVU190
+ 928 001a FFF7FEFF 		bl	loadcell_get_offset
+ 929              	.LVL64:
+ 930 001e 0446     		mov	r4, r0
+ 931              		.loc 1 217 17 discriminator 2 view .LVU191
+ 932 0020 204B     		ldr	r3, .L86+4
+ 933 0022 D3ED008A 		vldr.32	s17, [r3]
+ 934 0026 FFF7FEFF 		bl	torque_angle_get_target
+ 935              	.LVL65:
+ 936 002a B0EE401A 		vmov.f32	s2, s0
+ 937              		.loc 1 217 17 discriminator 3 view .LVU192
+ 938 002e F0EE680A 		vmov.f32	s1, s17
+ 939 0032 2046     		mov	r0, r4
+ 940 0034 B0EE480A 		vmov.f32	s0, s16
+ 941 0038 FFF7FEFF 		bl	flash_save
+ 942              	.LVL66:
+ 943              		.loc 1 217 16 discriminator 4 view .LVU193
+ 944 003c 40B3     		cbz	r0, .L82
+ 218:Core/Src/calibration.c ****                            s_target_for_save, torque_angle_get_target())) {
+ 219:Core/Src/calibration.c ****                 s_step = CALIB_STEP_VERIFY;
+ 945              		.loc 1 219 17 is_stmt 1 view .LVU194
+ 946              		.loc 1 219 24 is_stmt 0 view .LVU195
+ 947 003e 184B     		ldr	r3, .L86
+ 948 0040 0622     		movs	r2, #6
+ 949 0042 1A70     		strb	r2, [r3]
+ 220:Core/Src/calibration.c ****                 update_display();
+ 950              		.loc 1 220 17 is_stmt 1 view .LVU196
+ 951 0044 FFF7FEFF 		bl	update_display
+ 952              	.LVL67:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 24
+
+
+ 953 0048 12E0     		b	.L76
+ 954              	.L77:
+ 955              	.LBB5:
+ 205:Core/Src/calibration.c ****             if (delta != 0 && s_known_kg > 0.0f) {
+ 956              		.loc 1 205 13 view .LVU197
+ 205:Core/Src/calibration.c ****             if (delta != 0 && s_known_kg > 0.0f) {
+ 957              		.loc 1 205 40 is_stmt 0 view .LVU198
+ 958 004a 174B     		ldr	r3, .L86+8
+ 959 004c 1B68     		ldr	r3, [r3]
+ 960 004e 174A     		ldr	r2, .L86+12
+ 961 0050 1268     		ldr	r2, [r2]
+ 962              	.LVL68:
+ 206:Core/Src/calibration.c ****                 float new_scale = (float)delta / s_known_kg;
+ 963              		.loc 1 206 13 is_stmt 1 view .LVU199
+ 206:Core/Src/calibration.c ****                 float new_scale = (float)delta / s_known_kg;
+ 964              		.loc 1 206 16 is_stmt 0 view .LVU200
+ 965 0052 9B1A     		subs	r3, r3, r2
+ 966              	.LVL69:
+ 206:Core/Src/calibration.c ****                 float new_scale = (float)delta / s_known_kg;
+ 967              		.loc 1 206 16 view .LVU201
+ 968 0054 07D0     		beq	.L80
+ 206:Core/Src/calibration.c ****                 float new_scale = (float)delta / s_known_kg;
+ 969              		.loc 1 206 42 discriminator 1 view .LVU202
+ 970 0056 164A     		ldr	r2, .L86+16
+ 971 0058 92ED000A 		vldr.32	s0, [r2]
+ 206:Core/Src/calibration.c ****                 float new_scale = (float)delta / s_known_kg;
+ 972              		.loc 1 206 28 discriminator 1 view .LVU203
+ 973 005c B5EEC00A 		vcmpe.f32	s0, #0
+ 974 0060 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 975 0064 07DC     		bgt	.L85
+ 976              	.LVL70:
+ 977              	.L80:
+ 211:Core/Src/calibration.c ****             update_display();
+ 978              		.loc 1 211 13 is_stmt 1 view .LVU204
+ 211:Core/Src/calibration.c ****             update_display();
+ 979              		.loc 1 211 20 is_stmt 0 view .LVU205
+ 980 0066 0E4B     		ldr	r3, .L86
+ 981 0068 0522     		movs	r2, #5
+ 982 006a 1A70     		strb	r2, [r3]
+ 212:Core/Src/calibration.c ****             break;
+ 983              		.loc 1 212 13 is_stmt 1 view .LVU206
+ 984 006c FFF7FEFF 		bl	update_display
+ 985              	.LVL71:
+ 213:Core/Src/calibration.c ****         }
+ 986              		.loc 1 213 13 view .LVU207
+ 987              	.L76:
+ 213:Core/Src/calibration.c ****         }
+ 988              		.loc 1 213 13 is_stmt 0 view .LVU208
+ 989              	.LBE5:
+ 221:Core/Src/calibration.c ****             } else {
+ 222:Core/Src/calibration.c ****                 s_step = CALIB_STEP_DONE;
+ 223:Core/Src/calibration.c ****                 display_show_error("Flash save failed");
+ 224:Core/Src/calibration.c ****             }
+ 225:Core/Src/calibration.c ****             break;
+ 226:Core/Src/calibration.c ****         }
+ 227:Core/Src/calibration.c **** 
+ 228:Core/Src/calibration.c ****         default:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 25
+
+
+ 229:Core/Src/calibration.c ****             break;
+ 230:Core/Src/calibration.c ****     }
+ 231:Core/Src/calibration.c **** }
+ 990              		.loc 1 231 1 view .LVU209
+ 991 0070 BDEC028B 		vldm	sp!, {d8}
+ 992              	.LCFI16:
+ 993              		.cfi_remember_state
+ 994              		.cfi_restore 80
+ 995              		.cfi_restore 81
+ 996              		.cfi_def_cfa_offset 8
+ 997 0074 10BD     		pop	{r4, pc}
+ 998              	.LVL72:
+ 999              	.L85:
+ 1000              	.LCFI17:
+ 1001              		.cfi_restore_state
+ 1002              	.LBB7:
+ 1003              	.LBB6:
+ 207:Core/Src/calibration.c ****                 loadcell_set_scale(new_scale);
+ 1004              		.loc 1 207 17 is_stmt 1 view .LVU210
+ 207:Core/Src/calibration.c ****                 loadcell_set_scale(new_scale);
+ 1005              		.loc 1 207 35 is_stmt 0 view .LVU211
+ 1006 0076 07EE903A 		vmov	s15, r3	@ int
+ 1007 007a F8EEE77A 		vcvt.f32.s32	s15, s15
+ 1008              	.LVL73:
+ 208:Core/Src/calibration.c ****                 loadcell_set_offset(s_raw_tare);
+ 1009              		.loc 1 208 17 is_stmt 1 view .LVU212
+ 1010 007e 87EE800A 		vdiv.f32	s0, s15, s0
+ 1011              	.LVL74:
+ 208:Core/Src/calibration.c ****                 loadcell_set_offset(s_raw_tare);
+ 1012              		.loc 1 208 17 is_stmt 0 view .LVU213
+ 1013 0082 FFF7FEFF 		bl	loadcell_set_scale
+ 1014              	.LVL75:
+ 209:Core/Src/calibration.c ****             }
+ 1015              		.loc 1 209 17 is_stmt 1 view .LVU214
+ 1016 0086 094B     		ldr	r3, .L86+12
+ 1017 0088 1868     		ldr	r0, [r3]
+ 1018 008a FFF7FEFF 		bl	loadcell_set_offset
+ 1019              	.LVL76:
+ 1020 008e EAE7     		b	.L80
+ 1021              	.LVL77:
+ 1022              	.L82:
+ 209:Core/Src/calibration.c ****             }
+ 1023              		.loc 1 209 17 is_stmt 0 view .LVU215
+ 1024              	.LBE6:
+ 1025              	.LBE7:
+ 222:Core/Src/calibration.c ****                 display_show_error("Flash save failed");
+ 1026              		.loc 1 222 17 is_stmt 1 view .LVU216
+ 222:Core/Src/calibration.c ****                 display_show_error("Flash save failed");
+ 1027              		.loc 1 222 24 is_stmt 0 view .LVU217
+ 1028 0090 034B     		ldr	r3, .L86
+ 1029 0092 0722     		movs	r2, #7
+ 1030 0094 1A70     		strb	r2, [r3]
+ 223:Core/Src/calibration.c ****             }
+ 1031              		.loc 1 223 17 is_stmt 1 view .LVU218
+ 1032 0096 0748     		ldr	r0, .L86+20
+ 1033 0098 FFF7FEFF 		bl	display_show_error
+ 1034              	.LVL78:
+ARM GAS  /tmp/ccCTT9bQ.s 			page 26
+
+
+ 1035              		.loc 1 231 1 is_stmt 0 view .LVU219
+ 1036 009c E8E7     		b	.L76
+ 1037              	.L87:
+ 1038 009e 00BF     		.align	2
+ 1039              	.L86:
+ 1040 00a0 00000000 		.word	s_step
+ 1041 00a4 00000000 		.word	s_target_for_save
+ 1042 00a8 00000000 		.word	s_raw_load
+ 1043 00ac 00000000 		.word	s_raw_tare
+ 1044 00b0 00000000 		.word	s_known_kg
+ 1045 00b4 00000000 		.word	.LC13
+ 1046              		.cfi_endproc
+ 1047              	.LFE232:
+ 1049              		.section	.data.s_target_for_save,"aw"
+ 1050              		.align	2
+ 1053              	s_target_for_save:
+ 1054 0000 330F5F44 		.word	1147080499
+ 1055              		.section	.bss.s_raw_load,"aw",%nobits
+ 1056              		.align	2
+ 1059              	s_raw_load:
+ 1060 0000 00000000 		.space	4
+ 1061              		.section	.bss.s_raw_tare,"aw",%nobits
+ 1062              		.align	2
+ 1065              	s_raw_tare:
+ 1066 0000 00000000 		.space	4
+ 1067              		.section	.data.s_known_kg,"aw"
+ 1068              		.align	2
+ 1071              	s_known_kg:
+ 1072 0000 0000803F 		.word	1065353216
+ 1073              		.section	.bss.s_step,"aw",%nobits
+ 1076              	s_step:
+ 1077 0000 00       		.space	1
+ 1078              		.text
+ 1079              	.Letext0:
+ 1080              		.file 2 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/machine/_def
+ 1081              		.file 3 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/sys/_stdint.
+ 1082              		.file 4 "Core/Inc/calibration.h"
+ 1083              		.file 5 "Core/Inc/display.h"
+ 1084              		.file 6 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/lib/gcc/arm-none-eabi/14.3.1/inclu
+ 1085              		.file 7 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_def.h"
+ 1086              		.file 8 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_flash_ex.h"
+ 1087              		.file 9 "Core/Inc/torque_angle.h"
+ 1088              		.file 10 "Core/Inc/loadcell.h"
+ 1089              		.file 11 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/stdio.h"
+ 1090              		.file 12 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_flash.h"
+ARM GAS  /tmp/ccCTT9bQ.s 			page 27
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 calibration.c
+     /tmp/ccCTT9bQ.s:21     .rodata.update_display.str1.4:00000000 $d
+     /tmp/ccCTT9bQ.s:61     .text.update_display:00000000 $t
+     /tmp/ccCTT9bQ.s:66     .text.update_display:00000000 update_display
+     /tmp/ccCTT9bQ.s:89     .text.update_display:00000012 $d
+     /tmp/ccCTT9bQ.s:95     .text.update_display:00000018 $t
+     /tmp/ccCTT9bQ.s:270    .text.update_display:00000114 $d
+     /tmp/ccCTT9bQ.s:1076   .bss.s_step:00000000 s_step
+     /tmp/ccCTT9bQ.s:1071   .data.s_known_kg:00000000 s_known_kg
+     /tmp/ccCTT9bQ.s:289    .text.flash_load:00000000 $t
+     /tmp/ccCTT9bQ.s:295    .text.flash_load:00000000 flash_load
+     /tmp/ccCTT9bQ.s:396    .text.flash_load:00000054 $d
+     /tmp/ccCTT9bQ.s:402    .text.flash_save:00000000 $t
+     /tmp/ccCTT9bQ.s:408    .text.flash_save:00000000 flash_save
+     /tmp/ccCTT9bQ.s:540    .text.calib_init:00000000 $t
+     /tmp/ccCTT9bQ.s:546    .text.calib_init:00000000 calib_init
+     /tmp/ccCTT9bQ.s:568    .text.calib_init:00000010 $d
+     /tmp/ccCTT9bQ.s:574    .text.calib_start:00000000 $t
+     /tmp/ccCTT9bQ.s:580    .text.calib_start:00000000 calib_start
+     /tmp/ccCTT9bQ.s:619    .text.calib_start:00000024 $d
+     /tmp/ccCTT9bQ.s:1053   .data.s_target_for_save:00000000 s_target_for_save
+     /tmp/ccCTT9bQ.s:626    .text.calib_is_active:00000000 $t
+     /tmp/ccCTT9bQ.s:632    .text.calib_is_active:00000000 calib_is_active
+     /tmp/ccCTT9bQ.s:662    .text.calib_is_active:00000018 $d
+     /tmp/ccCTT9bQ.s:667    .text.calib_get_step:00000000 $t
+     /tmp/ccCTT9bQ.s:673    .text.calib_get_step:00000000 calib_get_step
+     /tmp/ccCTT9bQ.s:688    .text.calib_get_step:00000008 $d
+     /tmp/ccCTT9bQ.s:693    .text.calib_confirm:00000000 $t
+     /tmp/ccCTT9bQ.s:699    .text.calib_confirm:00000000 calib_confirm
+     /tmp/ccCTT9bQ.s:718    .text.calib_confirm:00000010 $d
+     /tmp/ccCTT9bQ.s:724    .text.calib_confirm:00000016 $t
+     /tmp/ccCTT9bQ.s:790    .text.calib_confirm:00000058 $d
+     /tmp/ccCTT9bQ.s:1065   .bss.s_raw_tare:00000000 s_raw_tare
+     /tmp/ccCTT9bQ.s:1059   .bss.s_raw_load:00000000 s_raw_load
+     /tmp/ccCTT9bQ.s:797    .text.calib_adjust:00000000 $t
+     /tmp/ccCTT9bQ.s:803    .text.calib_adjust:00000000 calib_adjust
+     /tmp/ccCTT9bQ.s:881    .text.calib_adjust:0000005c $d
+     /tmp/ccCTT9bQ.s:889    .rodata.calib_update.str1.4:00000000 $d
+     /tmp/ccCTT9bQ.s:893    .text.calib_update:00000000 $t
+     /tmp/ccCTT9bQ.s:899    .text.calib_update:00000000 calib_update
+     /tmp/ccCTT9bQ.s:1040   .text.calib_update:000000a0 $d
+     /tmp/ccCTT9bQ.s:1050   .data.s_target_for_save:00000000 $d
+     /tmp/ccCTT9bQ.s:1056   .bss.s_raw_load:00000000 $d
+     /tmp/ccCTT9bQ.s:1062   .bss.s_raw_tare:00000000 $d
+     /tmp/ccCTT9bQ.s:1068   .data.s_known_kg:00000000 $d
+     /tmp/ccCTT9bQ.s:1077   .bss.s_step:00000000 $d
+
+UNDEFINED SYMBOLS
+display_set_calib_text
+__aeabi_f2d
+snprintf
+loadcell_get_scale
+loadcell_get_kg
+HAL_FLASH_Unlock
+HAL_FLASHEx_Erase
+HAL_FLASH_Program
+ARM GAS  /tmp/ccCTT9bQ.s 			page 28
+
+
+HAL_FLASH_Lock
+display_set_screen
+loadcell_tare
+loadcell_read_raw
+loadcell_get_offset
+torque_angle_get_target
+loadcell_set_scale
+loadcell_set_offset
+display_show_error

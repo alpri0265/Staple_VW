@@ -1,0 +1,139 @@
+ARM GAS  /tmp/ccjZTTiM.s 			page 1
+
+
+   1              		.cpu cortex-m4
+   2              		.arch armv7e-m
+   3              		.fpu fpv4-sp-d16
+   4              		.eabi_attribute 27, 1
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 1
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"speedpot.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.file 1 "Core/Src/speedpot.c"
+  20              		.section	.text.speedpot_init,"ax",%progbits
+  21              		.align	1
+  22              		.global	speedpot_init
+  23              		.syntax unified
+  24              		.thumb
+  25              		.thumb_func
+  27              	speedpot_init:
+  28              	.LFB220:
+   1:Core/Src/speedpot.c **** #include "speedpot.h"
+   2:Core/Src/speedpot.c **** #include "adc_shared.h"
+   3:Core/Src/speedpot.c **** #include "stm32f4xx_hal.h"
+   4:Core/Src/speedpot.c **** 
+   5:Core/Src/speedpot.c **** void speedpot_init(void)
+   6:Core/Src/speedpot.c **** {
+  29              		.loc 1 6 1 view -0
+  30              		.cfi_startproc
+  31              		@ args = 0, pretend = 0, frame = 0
+  32              		@ frame_needed = 0, uses_anonymous_args = 0
+  33 0000 08B5     		push	{r3, lr}
+  34              	.LCFI0:
+  35              		.cfi_def_cfa_offset 8
+  36              		.cfi_offset 3, -8
+  37              		.cfi_offset 14, -4
+   7:Core/Src/speedpot.c ****     adc_shared_init();
+  38              		.loc 1 7 5 view .LVU1
+  39 0002 FFF7FEFF 		bl	adc_shared_init
+  40              	.LVL0:
+   8:Core/Src/speedpot.c **** }
+  41              		.loc 1 8 1 is_stmt 0 view .LVU2
+  42 0006 08BD     		pop	{r3, pc}
+  43              		.cfi_endproc
+  44              	.LFE220:
+  46              		.section	.text.speedpot_get_raw,"ax",%progbits
+  47              		.align	1
+  48              		.global	speedpot_get_raw
+  49              		.syntax unified
+  50              		.thumb
+  51              		.thumb_func
+ARM GAS  /tmp/ccjZTTiM.s 			page 2
+
+
+  53              	speedpot_get_raw:
+  54              	.LFB221:
+   9:Core/Src/speedpot.c **** 
+  10:Core/Src/speedpot.c **** uint16_t speedpot_get_raw(void)
+  11:Core/Src/speedpot.c **** {
+  55              		.loc 1 11 1 is_stmt 1 view -0
+  56              		.cfi_startproc
+  57              		@ args = 0, pretend = 0, frame = 8
+  58              		@ frame_needed = 0, uses_anonymous_args = 0
+  59 0000 00B5     		push	{lr}
+  60              	.LCFI1:
+  61              		.cfi_def_cfa_offset 4
+  62              		.cfi_offset 14, -4
+  63 0002 83B0     		sub	sp, sp, #12
+  64              	.LCFI2:
+  65              		.cfi_def_cfa_offset 16
+  12:Core/Src/speedpot.c ****     uint16_t raw = 0U;
+  66              		.loc 1 12 5 view .LVU4
+  67              		.loc 1 12 14 is_stmt 0 view .LVU5
+  68 0004 0023     		movs	r3, #0
+  69 0006 ADF80630 		strh	r3, [sp, #6]	@ movhi
+  13:Core/Src/speedpot.c ****     if (!adc_shared_read_channel(ADC_CHANNEL_2, ADC_SAMPLETIME_56CYCLES, &raw)) {
+  70              		.loc 1 13 5 is_stmt 1 view .LVU6
+  71              		.loc 1 13 10 is_stmt 0 view .LVU7
+  72 000a 0DF10602 		add	r2, sp, #6
+  73 000e 0321     		movs	r1, #3
+  74 0010 0220     		movs	r0, #2
+  75 0012 FFF7FEFF 		bl	adc_shared_read_channel
+  76              	.LVL1:
+  77              		.loc 1 13 8 discriminator 1 view .LVU8
+  78 0016 18B1     		cbz	r0, .L5
+  14:Core/Src/speedpot.c ****         return 0U;
+  15:Core/Src/speedpot.c ****     }
+  16:Core/Src/speedpot.c ****     return raw;
+  79              		.loc 1 16 5 is_stmt 1 view .LVU9
+  80              		.loc 1 16 12 is_stmt 0 view .LVU10
+  81 0018 BDF80600 		ldrh	r0, [sp, #6]
+  82              	.L4:
+  17:Core/Src/speedpot.c **** }
+  83              		.loc 1 17 1 view .LVU11
+  84 001c 03B0     		add	sp, sp, #12
+  85              	.LCFI3:
+  86              		.cfi_remember_state
+  87              		.cfi_def_cfa_offset 4
+  88              		@ sp needed
+  89 001e 00BD     		pop	{pc}
+  90              	.L5:
+  91              	.LCFI4:
+  92              		.cfi_restore_state
+  14:Core/Src/speedpot.c ****         return 0U;
+  93              		.loc 1 14 16 view .LVU12
+  94 0020 0020     		movs	r0, #0
+  95 0022 FBE7     		b	.L4
+  96              		.cfi_endproc
+  97              	.LFE221:
+  99              		.text
+ 100              	.Letext0:
+ARM GAS  /tmp/ccjZTTiM.s 			page 3
+
+
+ 101              		.file 2 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/machine/_def
+ 102              		.file 3 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/sys/_stdint.
+ 103              		.file 4 "Core/Inc/adc_shared.h"
+ARM GAS  /tmp/ccjZTTiM.s 			page 4
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 speedpot.c
+     /tmp/ccjZTTiM.s:21     .text.speedpot_init:00000000 $t
+     /tmp/ccjZTTiM.s:27     .text.speedpot_init:00000000 speedpot_init
+     /tmp/ccjZTTiM.s:47     .text.speedpot_get_raw:00000000 $t
+     /tmp/ccjZTTiM.s:53     .text.speedpot_get_raw:00000000 speedpot_get_raw
+
+UNDEFINED SYMBOLS
+adc_shared_init
+adc_shared_read_channel

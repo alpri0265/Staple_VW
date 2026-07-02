@@ -1,0 +1,1310 @@
+ARM GAS  /tmp/ccDmgdmS.s 			page 1
+
+
+   1              		.cpu cortex-m4
+   2              		.arch armv7e-m
+   3              		.fpu fpv4-sp-d16
+   4              		.eabi_attribute 27, 1
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 1
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"loadcell.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.file 1 "Core/Src/loadcell.c"
+  20              		.section	.text.hx_delay,"ax",%progbits
+  21              		.align	1
+  22              		.syntax unified
+  23              		.thumb
+  24              		.thumb_func
+  26              	hx_delay:
+  27              	.LFB223:
+   1:Core/Src/loadcell.c **** #include "loadcell.h"
+   2:Core/Src/loadcell.c **** #include "main.h"
+   3:Core/Src/loadcell.c **** #include "config.h"
+   4:Core/Src/loadcell.c **** 
+   5:Core/Src/loadcell.c **** #define AVG_SAMPLES  8
+   6:Core/Src/loadcell.c **** 
+   7:Core/Src/loadcell.c **** // ===== Стан модуля =====
+   8:Core/Src/loadcell.c **** static float   s_scale        = 1.0f;
+   9:Core/Src/loadcell.c **** static int32_t s_offset       = 0;
+  10:Core/Src/loadcell.c **** static float   s_force_kg     = 0.0f;
+  11:Core/Src/loadcell.c **** static float   s_force_fast_kg = 0.0f;
+  12:Core/Src/loadcell.c **** static bool    s_fast_valid   = false;
+  13:Core/Src/loadcell.c **** 
+  14:Core/Src/loadcell.c **** static int32_t s_avg_buf[AVG_SAMPLES];
+  15:Core/Src/loadcell.c **** static uint8_t s_avg_idx      = 0;
+  16:Core/Src/loadcell.c **** static int32_t s_avg_sum      = 0;
+  17:Core/Src/loadcell.c **** static uint8_t s_avg_count    = 0;
+  18:Core/Src/loadcell.c **** 
+  19:Core/Src/loadcell.c **** static uint32_t s_last_tick   = 0;
+  20:Core/Src/loadcell.c **** static bool     s_has_error   = false;
+  21:Core/Src/loadcell.c **** 
+  22:Core/Src/loadcell.c **** // ===== Приватні inline функції GPIO =====
+  23:Core/Src/loadcell.c **** 
+  24:Core/Src/loadcell.c **** static inline void hx_clk_hi(void)
+  25:Core/Src/loadcell.c **** {
+  26:Core/Src/loadcell.c ****     HX_CLK_GPIO_Port->BSRR = HX_CLK_Pin;
+  27:Core/Src/loadcell.c **** }
+  28:Core/Src/loadcell.c **** 
+  29:Core/Src/loadcell.c **** static inline void hx_clk_lo(void)
+  30:Core/Src/loadcell.c **** {
+  31:Core/Src/loadcell.c ****     HX_CLK_GPIO_Port->BSRR = (uint32_t)HX_CLK_Pin << 16U;
+ARM GAS  /tmp/ccDmgdmS.s 			page 2
+
+
+  32:Core/Src/loadcell.c **** }
+  33:Core/Src/loadcell.c **** 
+  34:Core/Src/loadcell.c **** static inline bool hx_dat_lo(void)
+  35:Core/Src/loadcell.c **** {
+  36:Core/Src/loadcell.c ****     return (HX_DAT_GPIO_Port->IDR & HX_DAT_Pin) == 0;
+  37:Core/Src/loadcell.c **** }
+  38:Core/Src/loadcell.c **** 
+  39:Core/Src/loadcell.c **** // ~60ns при 168MHz — достатньо для t3 = 100ns з урахуванням часу 
+  40:Core/Src/loadcell.c **** static inline void hx_delay(void)
+  41:Core/Src/loadcell.c **** {
+  28              		.loc 1 41 1 view -0
+  29              		.cfi_startproc
+  30              		@ args = 0, pretend = 0, frame = 0
+  31              		@ frame_needed = 0, uses_anonymous_args = 0
+  32              		@ link register save eliminated.
+  42:Core/Src/loadcell.c ****     __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+  33              		.loc 1 42 5 view .LVU1
+  34              		.syntax unified
+  35              	@ 42 "Core/Src/loadcell.c" 1
+  36 0000 00BF     		nop
+  37              	@ 0 "" 2
+  38              		.loc 1 42 14 view .LVU2
+  39              	@ 42 "Core/Src/loadcell.c" 1
+  40 0002 00BF     		nop
+  41              	@ 0 "" 2
+  42              		.loc 1 42 23 view .LVU3
+  43              	@ 42 "Core/Src/loadcell.c" 1
+  44 0004 00BF     		nop
+  45              	@ 0 "" 2
+  46              		.loc 1 42 32 view .LVU4
+  47              	@ 42 "Core/Src/loadcell.c" 1
+  48 0006 00BF     		nop
+  49              	@ 0 "" 2
+  50              		.loc 1 42 41 view .LVU5
+  51              	@ 42 "Core/Src/loadcell.c" 1
+  52 0008 00BF     		nop
+  53              	@ 0 "" 2
+  43:Core/Src/loadcell.c ****     __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+  54              		.loc 1 43 5 view .LVU6
+  55              	@ 43 "Core/Src/loadcell.c" 1
+  56 000a 00BF     		nop
+  57              	@ 0 "" 2
+  58              		.loc 1 43 14 view .LVU7
+  59              	@ 43 "Core/Src/loadcell.c" 1
+  60 000c 00BF     		nop
+  61              	@ 0 "" 2
+  62              		.loc 1 43 23 view .LVU8
+  63              	@ 43 "Core/Src/loadcell.c" 1
+  64 000e 00BF     		nop
+  65              	@ 0 "" 2
+  66              		.loc 1 43 32 view .LVU9
+  67              	@ 43 "Core/Src/loadcell.c" 1
+  68 0010 00BF     		nop
+  69              	@ 0 "" 2
+  70              		.loc 1 43 41 view .LVU10
+  71              	@ 43 "Core/Src/loadcell.c" 1
+  72 0012 00BF     		nop
+ARM GAS  /tmp/ccDmgdmS.s 			page 3
+
+
+  73              	@ 0 "" 2
+  44:Core/Src/loadcell.c **** }
+  74              		.loc 1 44 1 is_stmt 0 view .LVU11
+  75              		.thumb
+  76              		.syntax unified
+  77 0014 7047     		bx	lr
+  78              		.cfi_endproc
+  79              	.LFE223:
+  81              		.section	.text.hx711_read,"ax",%progbits
+  82              		.align	1
+  83              		.syntax unified
+  84              		.thumb
+  85              		.thumb_func
+  87              	hx711_read:
+  88              	.LFB224:
+  45:Core/Src/loadcell.c **** 
+  46:Core/Src/loadcell.c **** // ===== Зчитування 24 біт з HX711 =====
+  47:Core/Src/loadcell.c **** 
+  48:Core/Src/loadcell.c **** static int32_t hx711_read(void)
+  49:Core/Src/loadcell.c **** {
+  89              		.loc 1 49 1 is_stmt 1 view -0
+  90              		.cfi_startproc
+  91              		@ args = 0, pretend = 0, frame = 0
+  92              		@ frame_needed = 0, uses_anonymous_args = 0
+  93 0000 38B5     		push	{r3, r4, r5, lr}
+  94              	.LCFI0:
+  95              		.cfi_def_cfa_offset 16
+  96              		.cfi_offset 3, -16
+  97              		.cfi_offset 4, -12
+  98              		.cfi_offset 5, -8
+  99              		.cfi_offset 14, -4
+  50:Core/Src/loadcell.c ****     int32_t data = 0;
+ 100              		.loc 1 50 5 view .LVU13
+ 101              	.LVL0:
+  51:Core/Src/loadcell.c **** 
+  52:Core/Src/loadcell.c ****     for (int i = 0; i < 24; i++) {
+ 102              		.loc 1 52 5 view .LVU14
+ 103              	.LBB18:
+ 104              		.loc 1 52 10 view .LVU15
+ 105              		.loc 1 52 14 is_stmt 0 view .LVU16
+ 106 0002 0025     		movs	r5, #0
+ 107              	.LBE18:
+  50:Core/Src/loadcell.c ****     int32_t data = 0;
+ 108              		.loc 1 50 13 view .LVU17
+ 109 0004 2C46     		mov	r4, r5
+ 110              	.LBB23:
+ 111              		.loc 1 52 5 view .LVU18
+ 112 0006 06E0     		b	.L3
+ 113              	.LVL1:
+ 114              	.L4:
+  53:Core/Src/loadcell.c ****         hx_clk_hi();
+  54:Core/Src/loadcell.c ****         hx_delay();
+  55:Core/Src/loadcell.c ****         data = (data << 1);
+  56:Core/Src/loadcell.c ****         if ((HX_DAT_GPIO_Port->IDR & HX_DAT_Pin) != 0) {
+  57:Core/Src/loadcell.c ****             data |= 1;
+  58:Core/Src/loadcell.c ****         }
+  59:Core/Src/loadcell.c ****         hx_clk_lo();
+ARM GAS  /tmp/ccDmgdmS.s 			page 4
+
+
+ 115              		.loc 1 59 9 is_stmt 1 view .LVU19
+ 116              	.LBB19:
+ 117              	.LBI19:
+  29:Core/Src/loadcell.c **** {
+ 118              		.loc 1 29 20 view .LVU20
+ 119              	.LBB20:
+  31:Core/Src/loadcell.c **** }
+ 120              		.loc 1 31 5 view .LVU21
+  31:Core/Src/loadcell.c **** }
+ 121              		.loc 1 31 28 is_stmt 0 view .LVU22
+ 122 0008 134B     		ldr	r3, .L9
+ 123 000a 4FF40002 		mov	r2, #8388608
+ 124 000e 9A61     		str	r2, [r3, #24]
+ 125              	.LBE20:
+ 126              	.LBE19:
+  60:Core/Src/loadcell.c ****         hx_delay();
+ 127              		.loc 1 60 9 is_stmt 1 view .LVU23
+ 128 0010 FFF7FEFF 		bl	hx_delay
+ 129              	.LVL2:
+  52:Core/Src/loadcell.c ****         hx_clk_hi();
+ 130              		.loc 1 52 30 discriminator 2 view .LVU24
+ 131 0014 0135     		adds	r5, r5, #1
+ 132              	.LVL3:
+ 133              	.L3:
+  52:Core/Src/loadcell.c ****         hx_clk_hi();
+ 134              		.loc 1 52 23 discriminator 1 view .LVU25
+ 135 0016 172D     		cmp	r5, #23
+ 136 0018 0DDC     		bgt	.L8
+  53:Core/Src/loadcell.c ****         hx_delay();
+ 137              		.loc 1 53 9 view .LVU26
+ 138              	.LBB21:
+ 139              	.LBI21:
+  24:Core/Src/loadcell.c **** {
+ 140              		.loc 1 24 20 view .LVU27
+ 141              	.LBB22:
+  26:Core/Src/loadcell.c **** }
+ 142              		.loc 1 26 5 view .LVU28
+  26:Core/Src/loadcell.c **** }
+ 143              		.loc 1 26 28 is_stmt 0 view .LVU29
+ 144 001a 0F4B     		ldr	r3, .L9
+ 145 001c 8022     		movs	r2, #128
+ 146 001e 9A61     		str	r2, [r3, #24]
+ 147              	.LBE22:
+ 148              	.LBE21:
+  54:Core/Src/loadcell.c ****         data = (data << 1);
+ 149              		.loc 1 54 9 is_stmt 1 view .LVU30
+ 150 0020 FFF7FEFF 		bl	hx_delay
+ 151              	.LVL4:
+  55:Core/Src/loadcell.c ****         if ((HX_DAT_GPIO_Port->IDR & HX_DAT_Pin) != 0) {
+ 152              		.loc 1 55 9 view .LVU31
+  55:Core/Src/loadcell.c ****         if ((HX_DAT_GPIO_Port->IDR & HX_DAT_Pin) != 0) {
+ 153              		.loc 1 55 14 is_stmt 0 view .LVU32
+ 154 0024 6400     		lsls	r4, r4, #1
+ 155              	.LVL5:
+  56:Core/Src/loadcell.c ****             data |= 1;
+ 156              		.loc 1 56 9 is_stmt 1 view .LVU33
+  56:Core/Src/loadcell.c ****             data |= 1;
+ARM GAS  /tmp/ccDmgdmS.s 			page 5
+
+
+ 157              		.loc 1 56 30 is_stmt 0 view .LVU34
+ 158 0026 0D4B     		ldr	r3, .L9+4
+ 159 0028 1B69     		ldr	r3, [r3, #16]
+  56:Core/Src/loadcell.c ****             data |= 1;
+ 160              		.loc 1 56 12 view .LVU35
+ 161 002a 13F0010F 		tst	r3, #1
+ 162 002e EBD0     		beq	.L4
+  57:Core/Src/loadcell.c ****         }
+ 163              		.loc 1 57 13 is_stmt 1 view .LVU36
+  57:Core/Src/loadcell.c ****         }
+ 164              		.loc 1 57 18 is_stmt 0 view .LVU37
+ 165 0030 44F00104 		orr	r4, r4, #1
+ 166              	.LVL6:
+  57:Core/Src/loadcell.c ****         }
+ 167              		.loc 1 57 18 view .LVU38
+ 168 0034 E8E7     		b	.L4
+ 169              	.LVL7:
+ 170              	.L8:
+  57:Core/Src/loadcell.c ****         }
+ 171              		.loc 1 57 18 view .LVU39
+ 172              	.LBE23:
+  61:Core/Src/loadcell.c ****     }
+  62:Core/Src/loadcell.c **** 
+  63:Core/Src/loadcell.c ****     // 25-й імпульс → Channel A, Gain 128 для наступного зчитуванн�
+  64:Core/Src/loadcell.c ****     hx_clk_hi();
+ 173              		.loc 1 64 5 is_stmt 1 view .LVU40
+ 174              	.LBB24:
+ 175              	.LBI24:
+  24:Core/Src/loadcell.c **** {
+ 176              		.loc 1 24 20 view .LVU41
+ 177              	.LBB25:
+  26:Core/Src/loadcell.c **** }
+ 178              		.loc 1 26 5 view .LVU42
+  26:Core/Src/loadcell.c **** }
+ 179              		.loc 1 26 28 is_stmt 0 view .LVU43
+ 180 0036 084D     		ldr	r5, .L9
+ 181              	.LVL8:
+  26:Core/Src/loadcell.c **** }
+ 182              		.loc 1 26 28 view .LVU44
+ 183 0038 8023     		movs	r3, #128
+ 184 003a AB61     		str	r3, [r5, #24]
+ 185              	.LBE25:
+ 186              	.LBE24:
+  65:Core/Src/loadcell.c ****     hx_delay();
+ 187              		.loc 1 65 5 is_stmt 1 view .LVU45
+ 188 003c FFF7FEFF 		bl	hx_delay
+ 189              	.LVL9:
+  66:Core/Src/loadcell.c ****     hx_clk_lo();
+ 190              		.loc 1 66 5 view .LVU46
+ 191              	.LBB26:
+ 192              	.LBI26:
+  29:Core/Src/loadcell.c **** {
+ 193              		.loc 1 29 20 view .LVU47
+ 194              	.LBB27:
+  31:Core/Src/loadcell.c **** }
+ 195              		.loc 1 31 5 view .LVU48
+  31:Core/Src/loadcell.c **** }
+ARM GAS  /tmp/ccDmgdmS.s 			page 6
+
+
+ 196              		.loc 1 31 28 is_stmt 0 view .LVU49
+ 197 0040 4FF40003 		mov	r3, #8388608
+ 198 0044 AB61     		str	r3, [r5, #24]
+ 199              	.LBE27:
+ 200              	.LBE26:
+  67:Core/Src/loadcell.c ****     hx_delay();
+ 201              		.loc 1 67 5 is_stmt 1 view .LVU50
+ 202 0046 FFF7FEFF 		bl	hx_delay
+ 203              	.LVL10:
+  68:Core/Src/loadcell.c **** 
+  69:Core/Src/loadcell.c ****     // Знакове розширення 24→32 біт
+  70:Core/Src/loadcell.c ****     if (data & 0x800000) {
+ 204              		.loc 1 70 5 view .LVU51
+ 205              		.loc 1 70 8 is_stmt 0 view .LVU52
+ 206 004a 14F4000F 		tst	r4, #8388608
+ 207 004e 01D0     		beq	.L2
+  71:Core/Src/loadcell.c ****         data |= (int32_t)0xFF000000;
+ 208              		.loc 1 71 9 is_stmt 1 view .LVU53
+ 209              		.loc 1 71 14 is_stmt 0 view .LVU54
+ 210 0050 44F07F44 		orr	r4, r4, #-16777216
+ 211              	.LVL11:
+  72:Core/Src/loadcell.c ****     }
+  73:Core/Src/loadcell.c **** 
+  74:Core/Src/loadcell.c ****     return data;
+ 212              		.loc 1 74 5 is_stmt 1 view .LVU55
+ 213              	.L2:
+  75:Core/Src/loadcell.c **** }
+ 214              		.loc 1 75 1 is_stmt 0 view .LVU56
+ 215 0054 2046     		mov	r0, r4
+ 216 0056 38BD     		pop	{r3, r4, r5, pc}
+ 217              	.LVL12:
+ 218              	.L10:
+ 219              		.loc 1 75 1 view .LVU57
+ 220              		.align	2
+ 221              	.L9:
+ 222 0058 00000240 		.word	1073872896
+ 223 005c 00040240 		.word	1073873920
+ 224              		.cfi_endproc
+ 225              	.LFE224:
+ 227              		.section	.text.loadcell_init,"ax",%progbits
+ 228              		.align	1
+ 229              		.global	loadcell_init
+ 230              		.syntax unified
+ 231              		.thumb
+ 232              		.thumb_func
+ 234              	loadcell_init:
+ 235              	.LFB225:
+  76:Core/Src/loadcell.c **** 
+  77:Core/Src/loadcell.c **** // ===== Публічні функції =====
+  78:Core/Src/loadcell.c **** 
+  79:Core/Src/loadcell.c **** void loadcell_init(void)
+  80:Core/Src/loadcell.c **** {
+ 236              		.loc 1 80 1 is_stmt 1 view -0
+ 237              		.cfi_startproc
+ 238              		@ args = 0, pretend = 0, frame = 0
+ 239              		@ frame_needed = 0, uses_anonymous_args = 0
+ 240 0000 10B5     		push	{r4, lr}
+ARM GAS  /tmp/ccDmgdmS.s 			page 7
+
+
+ 241              	.LCFI1:
+ 242              		.cfi_def_cfa_offset 8
+ 243              		.cfi_offset 4, -8
+ 244              		.cfi_offset 14, -4
+  81:Core/Src/loadcell.c ****     hx_clk_lo();
+ 245              		.loc 1 81 5 view .LVU59
+ 246              	.LBB28:
+ 247              	.LBI28:
+  29:Core/Src/loadcell.c **** {
+ 248              		.loc 1 29 20 view .LVU60
+ 249              	.LBB29:
+  31:Core/Src/loadcell.c **** }
+ 250              		.loc 1 31 5 view .LVU61
+  31:Core/Src/loadcell.c **** }
+ 251              		.loc 1 31 28 is_stmt 0 view .LVU62
+ 252 0002 0E4B     		ldr	r3, .L13
+ 253 0004 4FF40002 		mov	r2, #8388608
+ 254 0008 9A61     		str	r2, [r3, #24]
+ 255              	.LBE29:
+ 256              	.LBE28:
+  82:Core/Src/loadcell.c ****     s_scale      = 1.0f;
+ 257              		.loc 1 82 5 is_stmt 1 view .LVU63
+ 258              		.loc 1 82 18 is_stmt 0 view .LVU64
+ 259 000a 0D4B     		ldr	r3, .L13+4
+ 260 000c 4FF07E52 		mov	r2, #1065353216
+ 261 0010 1A60     		str	r2, [r3]	@ float
+  83:Core/Src/loadcell.c ****     s_offset     = 0;
+ 262              		.loc 1 83 5 is_stmt 1 view .LVU65
+ 263              		.loc 1 83 18 is_stmt 0 view .LVU66
+ 264 0012 0024     		movs	r4, #0
+ 265 0014 0B4B     		ldr	r3, .L13+8
+ 266 0016 1C60     		str	r4, [r3]
+  84:Core/Src/loadcell.c ****     s_avg_idx    = 0;
+ 267              		.loc 1 84 5 is_stmt 1 view .LVU67
+ 268              		.loc 1 84 18 is_stmt 0 view .LVU68
+ 269 0018 0B4B     		ldr	r3, .L13+12
+ 270 001a 1C70     		strb	r4, [r3]
+  85:Core/Src/loadcell.c ****     s_avg_sum    = 0;
+ 271              		.loc 1 85 5 is_stmt 1 view .LVU69
+ 272              		.loc 1 85 18 is_stmt 0 view .LVU70
+ 273 001c 0B4B     		ldr	r3, .L13+16
+ 274 001e 1C60     		str	r4, [r3]
+  86:Core/Src/loadcell.c ****     s_avg_count  = 0;
+ 275              		.loc 1 86 5 is_stmt 1 view .LVU71
+ 276              		.loc 1 86 18 is_stmt 0 view .LVU72
+ 277 0020 0B4B     		ldr	r3, .L13+20
+ 278 0022 1C70     		strb	r4, [r3]
+  87:Core/Src/loadcell.c ****     s_has_error  = false;
+ 279              		.loc 1 87 5 is_stmt 1 view .LVU73
+ 280              		.loc 1 87 18 is_stmt 0 view .LVU74
+ 281 0024 0B4B     		ldr	r3, .L13+24
+ 282 0026 1C70     		strb	r4, [r3]
+  88:Core/Src/loadcell.c ****     s_last_tick  = HAL_GetTick();
+ 283              		.loc 1 88 5 is_stmt 1 view .LVU75
+ 284              		.loc 1 88 20 is_stmt 0 view .LVU76
+ 285 0028 FFF7FEFF 		bl	HAL_GetTick
+ 286              	.LVL13:
+ARM GAS  /tmp/ccDmgdmS.s 			page 8
+
+
+ 287              		.loc 1 88 18 discriminator 1 view .LVU77
+ 288 002c 0A4B     		ldr	r3, .L13+28
+ 289 002e 1860     		str	r0, [r3]
+  89:Core/Src/loadcell.c ****     s_force_fast_kg = 0.0f;
+ 290              		.loc 1 89 5 is_stmt 1 view .LVU78
+ 291              		.loc 1 89 21 is_stmt 0 view .LVU79
+ 292 0030 0A4B     		ldr	r3, .L13+32
+ 293 0032 0022     		movs	r2, #0
+ 294 0034 1A60     		str	r2, [r3]	@ float
+  90:Core/Src/loadcell.c ****     s_fast_valid = false;
+ 295              		.loc 1 90 5 is_stmt 1 view .LVU80
+ 296              		.loc 1 90 18 is_stmt 0 view .LVU81
+ 297 0036 0A4B     		ldr	r3, .L13+36
+ 298 0038 1C70     		strb	r4, [r3]
+  91:Core/Src/loadcell.c **** }
+ 299              		.loc 1 91 1 view .LVU82
+ 300 003a 10BD     		pop	{r4, pc}
+ 301              	.L14:
+ 302              		.align	2
+ 303              	.L13:
+ 304 003c 00000240 		.word	1073872896
+ 305 0040 00000000 		.word	s_scale
+ 306 0044 00000000 		.word	s_offset
+ 307 0048 00000000 		.word	s_avg_idx
+ 308 004c 00000000 		.word	s_avg_sum
+ 309 0050 00000000 		.word	s_avg_count
+ 310 0054 00000000 		.word	s_has_error
+ 311 0058 00000000 		.word	s_last_tick
+ 312 005c 00000000 		.word	s_force_fast_kg
+ 313 0060 00000000 		.word	s_fast_valid
+ 314              		.cfi_endproc
+ 315              	.LFE225:
+ 317              		.section	.text.loadcell_is_ready,"ax",%progbits
+ 318              		.align	1
+ 319              		.global	loadcell_is_ready
+ 320              		.syntax unified
+ 321              		.thumb
+ 322              		.thumb_func
+ 324              	loadcell_is_ready:
+ 325              	.LFB226:
+  92:Core/Src/loadcell.c **** 
+  93:Core/Src/loadcell.c **** bool loadcell_is_ready(void)
+  94:Core/Src/loadcell.c **** {
+ 326              		.loc 1 94 1 is_stmt 1 view -0
+ 327              		.cfi_startproc
+ 328              		@ args = 0, pretend = 0, frame = 0
+ 329              		@ frame_needed = 0, uses_anonymous_args = 0
+ 330              		@ link register save eliminated.
+  95:Core/Src/loadcell.c ****     return hx_dat_lo();
+ 331              		.loc 1 95 5 view .LVU84
+ 332              	.LBB30:
+ 333              	.LBI30:
+  34:Core/Src/loadcell.c **** {
+ 334              		.loc 1 34 20 view .LVU85
+ 335              	.LBB31:
+  36:Core/Src/loadcell.c **** }
+ 336              		.loc 1 36 5 view .LVU86
+ARM GAS  /tmp/ccDmgdmS.s 			page 9
+
+
+  36:Core/Src/loadcell.c **** }
+ 337              		.loc 1 36 29 is_stmt 0 view .LVU87
+ 338 0000 034B     		ldr	r3, .L16
+ 339 0002 1869     		ldr	r0, [r3, #16]
+  36:Core/Src/loadcell.c **** }
+ 340              		.loc 1 36 35 view .LVU88
+ 341 0004 00F00100 		and	r0, r0, #1
+ 342              	.LBE31:
+ 343              	.LBE30:
+  96:Core/Src/loadcell.c **** }
+ 344              		.loc 1 96 1 view .LVU89
+ 345 0008 80F00100 		eor	r0, r0, #1
+ 346 000c 7047     		bx	lr
+ 347              	.L17:
+ 348 000e 00BF     		.align	2
+ 349              	.L16:
+ 350 0010 00040240 		.word	1073873920
+ 351              		.cfi_endproc
+ 352              	.LFE226:
+ 354              		.section	.text.loadcell_update,"ax",%progbits
+ 355              		.align	1
+ 356              		.global	loadcell_update
+ 357              		.syntax unified
+ 358              		.thumb
+ 359              		.thumb_func
+ 361              	loadcell_update:
+ 362              	.LFB227:
+  97:Core/Src/loadcell.c **** 
+  98:Core/Src/loadcell.c **** void loadcell_update(void)
+  99:Core/Src/loadcell.c **** {
+ 363              		.loc 1 99 1 is_stmt 1 view -0
+ 364              		.cfi_startproc
+ 365              		@ args = 0, pretend = 0, frame = 0
+ 366              		@ frame_needed = 0, uses_anonymous_args = 0
+ 367 0000 70B5     		push	{r4, r5, r6, lr}
+ 368              	.LCFI2:
+ 369              		.cfi_def_cfa_offset 16
+ 370              		.cfi_offset 4, -16
+ 371              		.cfi_offset 5, -12
+ 372              		.cfi_offset 6, -8
+ 373              		.cfi_offset 14, -4
+ 100:Core/Src/loadcell.c ****     if (!hx_dat_lo()) {
+ 374              		.loc 1 100 5 view .LVU91
+ 375              	.LBB32:
+ 376              	.LBI32:
+  34:Core/Src/loadcell.c **** {
+ 377              		.loc 1 34 20 view .LVU92
+ 378              	.LBB33:
+  36:Core/Src/loadcell.c **** }
+ 379              		.loc 1 36 5 view .LVU93
+  36:Core/Src/loadcell.c **** }
+ 380              		.loc 1 36 29 is_stmt 0 view .LVU94
+ 381 0002 3B4B     		ldr	r3, .L27
+ 382 0004 1B69     		ldr	r3, [r3, #16]
+ 383              	.LBE33:
+ 384              	.LBE32:
+ 385              		.loc 1 100 8 discriminator 1 view .LVU95
+ARM GAS  /tmp/ccDmgdmS.s 			page 10
+
+
+ 386 0006 13F0010F 		tst	r3, #1
+ 387 000a 4ED1     		bne	.L26
+ 101:Core/Src/loadcell.c ****         if ((HAL_GetTick() - s_last_tick) > HX711_TIMEOUT_MS) {
+ 102:Core/Src/loadcell.c ****             s_has_error = true;
+ 103:Core/Src/loadcell.c ****         }
+ 104:Core/Src/loadcell.c ****         return;
+ 105:Core/Src/loadcell.c ****     }
+ 106:Core/Src/loadcell.c **** 
+ 107:Core/Src/loadcell.c ****     s_has_error = false;
+ 388              		.loc 1 107 5 is_stmt 1 view .LVU96
+ 389              		.loc 1 107 17 is_stmt 0 view .LVU97
+ 390 000c 394B     		ldr	r3, .L27+4
+ 391 000e 0022     		movs	r2, #0
+ 392 0010 1A70     		strb	r2, [r3]
+ 108:Core/Src/loadcell.c ****     s_last_tick = HAL_GetTick();
+ 393              		.loc 1 108 5 is_stmt 1 view .LVU98
+ 394              		.loc 1 108 19 is_stmt 0 view .LVU99
+ 395 0012 FFF7FEFF 		bl	HAL_GetTick
+ 396              	.LVL14:
+ 397              		.loc 1 108 17 discriminator 1 view .LVU100
+ 398 0016 384B     		ldr	r3, .L27+8
+ 399 0018 1860     		str	r0, [r3]
+ 109:Core/Src/loadcell.c **** 
+ 110:Core/Src/loadcell.c ****     int32_t raw = hx711_read();
+ 400              		.loc 1 110 5 is_stmt 1 view .LVU101
+ 401              		.loc 1 110 19 is_stmt 0 view .LVU102
+ 402 001a FFF7FEFF 		bl	hx711_read
+ 403              	.LVL15:
+ 111:Core/Src/loadcell.c **** 
+ 112:Core/Src/loadcell.c ****     // Ковзне середнє
+ 113:Core/Src/loadcell.c ****     s_avg_sum -= s_avg_buf[s_avg_idx];
+ 404              		.loc 1 113 5 is_stmt 1 view .LVU103
+ 405              		.loc 1 113 27 is_stmt 0 view .LVU104
+ 406 001e 374C     		ldr	r4, .L27+12
+ 407 0020 2378     		ldrb	r3, [r4]	@ zero_extendqisi2
+ 408 0022 374D     		ldr	r5, .L27+16
+ 409              		.loc 1 113 15 view .LVU105
+ 410 0024 3749     		ldr	r1, .L27+20
+ 411 0026 0A68     		ldr	r2, [r1]
+ 412 0028 55F82360 		ldr	r6, [r5, r3, lsl #2]
+ 413 002c 921B     		subs	r2, r2, r6
+ 414 002e 0A60     		str	r2, [r1]
+ 114:Core/Src/loadcell.c ****     s_avg_buf[s_avg_idx] = raw;
+ 415              		.loc 1 114 5 is_stmt 1 view .LVU106
+ 416              		.loc 1 114 26 is_stmt 0 view .LVU107
+ 417 0030 45F82300 		str	r0, [r5, r3, lsl #2]
+ 115:Core/Src/loadcell.c ****     s_avg_sum += raw;
+ 418              		.loc 1 115 5 is_stmt 1 view .LVU108
+ 419              		.loc 1 115 15 is_stmt 0 view .LVU109
+ 420 0034 0244     		add	r2, r2, r0
+ 421 0036 0A60     		str	r2, [r1]
+ 116:Core/Src/loadcell.c ****     s_avg_idx = (s_avg_idx + 1) % AVG_SAMPLES;
+ 422              		.loc 1 116 5 is_stmt 1 view .LVU110
+ 423              		.loc 1 116 28 is_stmt 0 view .LVU111
+ 424 0038 0133     		adds	r3, r3, #1
+ 425              		.loc 1 116 33 view .LVU112
+ 426 003a 5942     		rsbs	r1, r3, #0
+ARM GAS  /tmp/ccDmgdmS.s 			page 11
+
+
+ 427 003c 03F00703 		and	r3, r3, #7
+ 428 0040 01F00701 		and	r1, r1, #7
+ 429 0044 58BF     		it	pl
+ 430 0046 4B42     		rsbpl	r3, r1, #0
+ 431              		.loc 1 116 15 view .LVU113
+ 432 0048 2370     		strb	r3, [r4]
+ 117:Core/Src/loadcell.c ****     if (s_avg_count < AVG_SAMPLES) s_avg_count++;
+ 433              		.loc 1 117 5 is_stmt 1 view .LVU114
+ 434              		.loc 1 117 21 is_stmt 0 view .LVU115
+ 435 004a 2F4B     		ldr	r3, .L27+24
+ 436 004c 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 437              		.loc 1 117 8 view .LVU116
+ 438 004e 072B     		cmp	r3, #7
+ 439 0050 02D8     		bhi	.L22
+ 440              		.loc 1 117 36 is_stmt 1 discriminator 1 view .LVU117
+ 441              		.loc 1 117 47 is_stmt 0 discriminator 1 view .LVU118
+ 442 0052 0133     		adds	r3, r3, #1
+ 443 0054 2C49     		ldr	r1, .L27+24
+ 444 0056 0B70     		strb	r3, [r1]
+ 445              	.L22:
+ 118:Core/Src/loadcell.c **** 
+ 119:Core/Src/loadcell.c ****     int32_t avg = s_avg_sum / (int32_t)s_avg_count;
+ 446              		.loc 1 119 5 is_stmt 1 view .LVU119
+ 447              		.loc 1 119 31 is_stmt 0 view .LVU120
+ 448 0058 2B4B     		ldr	r3, .L27+24
+ 449 005a 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 450              		.loc 1 119 13 view .LVU121
+ 451 005c 92FBF3F2 		sdiv	r2, r2, r3
+ 452              	.LVL16:
+ 120:Core/Src/loadcell.c **** 
+ 121:Core/Src/loadcell.c ****     if (s_scale != 0.0f) {
+ 453              		.loc 1 121 5 is_stmt 1 view .LVU122
+ 454              		.loc 1 121 17 is_stmt 0 view .LVU123
+ 455 0060 2A4B     		ldr	r3, .L27+28
+ 456 0062 93ED007A 		vldr.32	s14, [r3]
+ 457              		.loc 1 121 8 view .LVU124
+ 458 0066 B5EE407A 		vcmp.f32	s14, #0
+ 459 006a F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 460 006e 36D0     		beq	.L23
+ 461              	.LBB34:
+ 122:Core/Src/loadcell.c ****         s_force_kg = (float)(avg - s_offset) / s_scale;
+ 462              		.loc 1 122 9 is_stmt 1 view .LVU125
+ 463              		.loc 1 122 34 is_stmt 0 view .LVU126
+ 464 0070 274B     		ldr	r3, .L27+32
+ 465 0072 1B68     		ldr	r3, [r3]
+ 466 0074 D21A     		subs	r2, r2, r3
+ 467              	.LVL17:
+ 468              		.loc 1 122 22 view .LVU127
+ 469 0076 07EE902A 		vmov	s15, r2	@ int
+ 470 007a F8EEE77A 		vcvt.f32.s32	s15, s15
+ 471              		.loc 1 122 46 view .LVU128
+ 472 007e C7EE876A 		vdiv.f32	s13, s15, s14
+ 473              		.loc 1 122 20 view .LVU129
+ 474 0082 244A     		ldr	r2, .L27+36
+ 475 0084 C2ED006A 		vstr.32	s13, [r2]
+ 123:Core/Src/loadcell.c **** 
+ 124:Core/Src/loadcell.c ****         float raw_force_kg = (float)(raw - s_offset) / s_scale;
+ARM GAS  /tmp/ccDmgdmS.s 			page 12
+
+
+ 476              		.loc 1 124 9 is_stmt 1 view .LVU130
+ 477              		.loc 1 124 42 is_stmt 0 view .LVU131
+ 478 0088 C31A     		subs	r3, r0, r3
+ 479 008a 07EE903A 		vmov	s15, r3	@ int
+ 480              		.loc 1 124 30 view .LVU132
+ 481 008e F8EEE77A 		vcvt.f32.s32	s15, s15
+ 482              		.loc 1 124 15 view .LVU133
+ 483 0092 C7EE876A 		vdiv.f32	s13, s15, s14
+ 484              	.LVL18:
+ 125:Core/Src/loadcell.c ****         if (!s_fast_valid) {
+ 485              		.loc 1 125 9 is_stmt 1 view .LVU134
+ 486              		.loc 1 125 13 is_stmt 0 view .LVU135
+ 487 0096 204B     		ldr	r3, .L27+40
+ 488 0098 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 489              		.loc 1 125 12 view .LVU136
+ 490 009a 93B9     		cbnz	r3, .L24
+ 126:Core/Src/loadcell.c ****             s_force_fast_kg = raw_force_kg;
+ 491              		.loc 1 126 13 is_stmt 1 view .LVU137
+ 492              		.loc 1 126 29 is_stmt 0 view .LVU138
+ 493 009c 1F4B     		ldr	r3, .L27+44
+ 494 009e C3ED006A 		vstr.32	s13, [r3]
+ 127:Core/Src/loadcell.c ****             s_fast_valid = true;
+ 495              		.loc 1 127 13 is_stmt 1 view .LVU139
+ 496              		.loc 1 127 26 is_stmt 0 view .LVU140
+ 497 00a2 1D4B     		ldr	r3, .L27+40
+ 498 00a4 0122     		movs	r2, #1
+ 499 00a6 1A70     		strb	r2, [r3]
+ 500 00a8 21E0     		b	.L18
+ 501              	.LVL19:
+ 502              	.L26:
+ 503              		.loc 1 127 26 view .LVU141
+ 504              	.LBE34:
+ 101:Core/Src/loadcell.c ****             s_has_error = true;
+ 505              		.loc 1 101 9 is_stmt 1 view .LVU142
+ 101:Core/Src/loadcell.c ****             s_has_error = true;
+ 506              		.loc 1 101 14 is_stmt 0 view .LVU143
+ 507 00aa FFF7FEFF 		bl	HAL_GetTick
+ 508              	.LVL20:
+ 101:Core/Src/loadcell.c ****             s_has_error = true;
+ 509              		.loc 1 101 28 discriminator 1 view .LVU144
+ 510 00ae 124B     		ldr	r3, .L27+8
+ 511 00b0 1B68     		ldr	r3, [r3]
+ 512 00b2 C01A     		subs	r0, r0, r3
+ 101:Core/Src/loadcell.c ****             s_has_error = true;
+ 513              		.loc 1 101 12 discriminator 1 view .LVU145
+ 514 00b4 B0F5FA7F 		cmp	r0, #500
+ 515 00b8 19D9     		bls	.L18
+ 102:Core/Src/loadcell.c ****         }
+ 516              		.loc 1 102 13 is_stmt 1 view .LVU146
+ 102:Core/Src/loadcell.c ****         }
+ 517              		.loc 1 102 25 is_stmt 0 view .LVU147
+ 518 00ba 0E4B     		ldr	r3, .L27+4
+ 519 00bc 0122     		movs	r2, #1
+ 520 00be 1A70     		strb	r2, [r3]
+ 104:Core/Src/loadcell.c ****     }
+ 521              		.loc 1 104 9 is_stmt 1 view .LVU148
+ 522 00c0 15E0     		b	.L18
+ARM GAS  /tmp/ccDmgdmS.s 			page 13
+
+
+ 523              	.LVL21:
+ 524              	.L24:
+ 525              	.LBB35:
+ 128:Core/Src/loadcell.c ****         } else {
+ 129:Core/Src/loadcell.c ****             s_force_fast_kg += (raw_force_kg - s_force_fast_kg) * AUTO_FAST_FILTER_ALPHA;
+ 526              		.loc 1 129 13 view .LVU149
+ 527              		.loc 1 129 46 is_stmt 0 view .LVU150
+ 528 00c2 164B     		ldr	r3, .L27+44
+ 529 00c4 D3ED007A 		vldr.32	s15, [r3]
+ 530 00c8 76EEE76A 		vsub.f32	s13, s13, s15
+ 531              	.LVL22:
+ 532              		.loc 1 129 65 view .LVU151
+ 533 00cc B6EE007A 		vmov.f32	s14, #5.0e-1
+ 534              	.LVL23:
+ 535              		.loc 1 129 65 view .LVU152
+ 536 00d0 66EE876A 		vmul.f32	s13, s13, s14
+ 537              		.loc 1 129 29 view .LVU153
+ 538 00d4 77EEA67A 		vadd.f32	s15, s15, s13
+ 539 00d8 C3ED007A 		vstr.32	s15, [r3]
+ 540 00dc 07E0     		b	.L18
+ 541              	.LVL24:
+ 542              	.L23:
+ 543              		.loc 1 129 29 view .LVU154
+ 544              	.LBE35:
+ 130:Core/Src/loadcell.c ****         }
+ 131:Core/Src/loadcell.c ****     } else {
+ 132:Core/Src/loadcell.c ****         s_force_kg = 0.0f;
+ 545              		.loc 1 132 9 is_stmt 1 view .LVU155
+ 546              		.loc 1 132 20 is_stmt 0 view .LVU156
+ 547 00de 0023     		movs	r3, #0
+ 548 00e0 0C4A     		ldr	r2, .L27+36
+ 549              	.LVL25:
+ 550              		.loc 1 132 20 view .LVU157
+ 551 00e2 1360     		str	r3, [r2]	@ float
+ 133:Core/Src/loadcell.c ****         s_force_fast_kg = 0.0f;
+ 552              		.loc 1 133 9 is_stmt 1 view .LVU158
+ 553              		.loc 1 133 25 is_stmt 0 view .LVU159
+ 554 00e4 0D4A     		ldr	r2, .L27+44
+ 555 00e6 1360     		str	r3, [r2]	@ float
+ 134:Core/Src/loadcell.c ****         s_fast_valid = false;
+ 556              		.loc 1 134 9 is_stmt 1 view .LVU160
+ 557              		.loc 1 134 22 is_stmt 0 view .LVU161
+ 558 00e8 0B4B     		ldr	r3, .L27+40
+ 559 00ea 0022     		movs	r2, #0
+ 560 00ec 1A70     		strb	r2, [r3]
+ 561              	.LVL26:
+ 562              	.L18:
+ 135:Core/Src/loadcell.c ****     }
+ 136:Core/Src/loadcell.c **** }
+ 563              		.loc 1 136 1 view .LVU162
+ 564 00ee 70BD     		pop	{r4, r5, r6, pc}
+ 565              	.L28:
+ 566              		.align	2
+ 567              	.L27:
+ 568 00f0 00040240 		.word	1073873920
+ 569 00f4 00000000 		.word	s_has_error
+ 570 00f8 00000000 		.word	s_last_tick
+ARM GAS  /tmp/ccDmgdmS.s 			page 14
+
+
+ 571 00fc 00000000 		.word	s_avg_idx
+ 572 0100 00000000 		.word	s_avg_buf
+ 573 0104 00000000 		.word	s_avg_sum
+ 574 0108 00000000 		.word	s_avg_count
+ 575 010c 00000000 		.word	s_scale
+ 576 0110 00000000 		.word	s_offset
+ 577 0114 00000000 		.word	s_force_kg
+ 578 0118 00000000 		.word	s_fast_valid
+ 579 011c 00000000 		.word	s_force_fast_kg
+ 580              		.cfi_endproc
+ 581              	.LFE227:
+ 583              		.section	.text.loadcell_get_kg,"ax",%progbits
+ 584              		.align	1
+ 585              		.global	loadcell_get_kg
+ 586              		.syntax unified
+ 587              		.thumb
+ 588              		.thumb_func
+ 590              	loadcell_get_kg:
+ 591              	.LFB228:
+ 137:Core/Src/loadcell.c **** 
+ 138:Core/Src/loadcell.c **** float loadcell_get_kg(void)
+ 139:Core/Src/loadcell.c **** {
+ 592              		.loc 1 139 1 is_stmt 1 view -0
+ 593              		.cfi_startproc
+ 594              		@ args = 0, pretend = 0, frame = 0
+ 595              		@ frame_needed = 0, uses_anonymous_args = 0
+ 596              		@ link register save eliminated.
+ 140:Core/Src/loadcell.c ****     return s_force_kg;
+ 597              		.loc 1 140 5 view .LVU164
+ 141:Core/Src/loadcell.c **** }
+ 598              		.loc 1 141 1 is_stmt 0 view .LVU165
+ 599 0000 014B     		ldr	r3, .L30
+ 600 0002 93ED000A 		vldr.32	s0, [r3]
+ 601 0006 7047     		bx	lr
+ 602              	.L31:
+ 603              		.align	2
+ 604              	.L30:
+ 605 0008 00000000 		.word	s_force_kg
+ 606              		.cfi_endproc
+ 607              	.LFE228:
+ 609              		.section	.text.loadcell_get_kN,"ax",%progbits
+ 610              		.align	1
+ 611              		.global	loadcell_get_kN
+ 612              		.syntax unified
+ 613              		.thumb
+ 614              		.thumb_func
+ 616              	loadcell_get_kN:
+ 617              	.LFB229:
+ 142:Core/Src/loadcell.c **** 
+ 143:Core/Src/loadcell.c **** float loadcell_get_kN(void)
+ 144:Core/Src/loadcell.c **** {
+ 618              		.loc 1 144 1 is_stmt 1 view -0
+ 619              		.cfi_startproc
+ 620              		@ args = 0, pretend = 0, frame = 0
+ 621              		@ frame_needed = 0, uses_anonymous_args = 0
+ 622              		@ link register save eliminated.
+ 145:Core/Src/loadcell.c ****     return s_force_kg / 101.97f;
+ARM GAS  /tmp/ccDmgdmS.s 			page 15
+
+
+ 623              		.loc 1 145 5 view .LVU167
+ 624              		.loc 1 145 23 is_stmt 0 view .LVU168
+ 625 0000 034B     		ldr	r3, .L33
+ 626 0002 93ED000A 		vldr.32	s0, [r3]
+ 146:Core/Src/loadcell.c **** }
+ 627              		.loc 1 146 1 view .LVU169
+ 628 0006 DFED037A 		vldr.32	s15, .L33+4
+ 629 000a 80EE270A 		vdiv.f32	s0, s0, s15
+ 630 000e 7047     		bx	lr
+ 631              	.L34:
+ 632              		.align	2
+ 633              	.L33:
+ 634 0010 00000000 		.word	s_force_kg
+ 635 0014 A4F0CB42 		.word	1120661668
+ 636              		.cfi_endproc
+ 637              	.LFE229:
+ 639              		.section	.text.loadcell_get_fast_kg,"ax",%progbits
+ 640              		.align	1
+ 641              		.global	loadcell_get_fast_kg
+ 642              		.syntax unified
+ 643              		.thumb
+ 644              		.thumb_func
+ 646              	loadcell_get_fast_kg:
+ 647              	.LFB230:
+ 147:Core/Src/loadcell.c **** 
+ 148:Core/Src/loadcell.c **** float loadcell_get_fast_kg(void)
+ 149:Core/Src/loadcell.c **** {
+ 648              		.loc 1 149 1 is_stmt 1 view -0
+ 649              		.cfi_startproc
+ 650              		@ args = 0, pretend = 0, frame = 0
+ 651              		@ frame_needed = 0, uses_anonymous_args = 0
+ 652              		@ link register save eliminated.
+ 150:Core/Src/loadcell.c ****     return s_force_fast_kg;
+ 653              		.loc 1 150 5 view .LVU171
+ 151:Core/Src/loadcell.c **** }
+ 654              		.loc 1 151 1 is_stmt 0 view .LVU172
+ 655 0000 014B     		ldr	r3, .L36
+ 656 0002 93ED000A 		vldr.32	s0, [r3]
+ 657 0006 7047     		bx	lr
+ 658              	.L37:
+ 659              		.align	2
+ 660              	.L36:
+ 661 0008 00000000 		.word	s_force_fast_kg
+ 662              		.cfi_endproc
+ 663              	.LFE230:
+ 665              		.section	.text.loadcell_get_fast_kN,"ax",%progbits
+ 666              		.align	1
+ 667              		.global	loadcell_get_fast_kN
+ 668              		.syntax unified
+ 669              		.thumb
+ 670              		.thumb_func
+ 672              	loadcell_get_fast_kN:
+ 673              	.LFB231:
+ 152:Core/Src/loadcell.c **** 
+ 153:Core/Src/loadcell.c **** float loadcell_get_fast_kN(void)
+ 154:Core/Src/loadcell.c **** {
+ 674              		.loc 1 154 1 is_stmt 1 view -0
+ARM GAS  /tmp/ccDmgdmS.s 			page 16
+
+
+ 675              		.cfi_startproc
+ 676              		@ args = 0, pretend = 0, frame = 0
+ 677              		@ frame_needed = 0, uses_anonymous_args = 0
+ 678              		@ link register save eliminated.
+ 155:Core/Src/loadcell.c ****     return s_force_fast_kg / 101.97f;
+ 679              		.loc 1 155 5 view .LVU174
+ 680              		.loc 1 155 28 is_stmt 0 view .LVU175
+ 681 0000 034B     		ldr	r3, .L39
+ 682 0002 93ED000A 		vldr.32	s0, [r3]
+ 156:Core/Src/loadcell.c **** }
+ 683              		.loc 1 156 1 view .LVU176
+ 684 0006 DFED037A 		vldr.32	s15, .L39+4
+ 685 000a 80EE270A 		vdiv.f32	s0, s0, s15
+ 686 000e 7047     		bx	lr
+ 687              	.L40:
+ 688              		.align	2
+ 689              	.L39:
+ 690 0010 00000000 		.word	s_force_fast_kg
+ 691 0014 A4F0CB42 		.word	1120661668
+ 692              		.cfi_endproc
+ 693              	.LFE231:
+ 695              		.section	.text.loadcell_has_error,"ax",%progbits
+ 696              		.align	1
+ 697              		.global	loadcell_has_error
+ 698              		.syntax unified
+ 699              		.thumb
+ 700              		.thumb_func
+ 702              	loadcell_has_error:
+ 703              	.LFB232:
+ 157:Core/Src/loadcell.c **** 
+ 158:Core/Src/loadcell.c **** bool loadcell_has_error(void)
+ 159:Core/Src/loadcell.c **** {
+ 704              		.loc 1 159 1 is_stmt 1 view -0
+ 705              		.cfi_startproc
+ 706              		@ args = 0, pretend = 0, frame = 0
+ 707              		@ frame_needed = 0, uses_anonymous_args = 0
+ 708              		@ link register save eliminated.
+ 160:Core/Src/loadcell.c ****     return s_has_error;
+ 709              		.loc 1 160 5 view .LVU178
+ 161:Core/Src/loadcell.c **** }
+ 710              		.loc 1 161 1 is_stmt 0 view .LVU179
+ 711 0000 014B     		ldr	r3, .L42
+ 712 0002 1878     		ldrb	r0, [r3]	@ zero_extendqisi2
+ 713 0004 7047     		bx	lr
+ 714              	.L43:
+ 715 0006 00BF     		.align	2
+ 716              	.L42:
+ 717 0008 00000000 		.word	s_has_error
+ 718              		.cfi_endproc
+ 719              	.LFE232:
+ 721              		.section	.text.loadcell_tare,"ax",%progbits
+ 722              		.align	1
+ 723              		.global	loadcell_tare
+ 724              		.syntax unified
+ 725              		.thumb
+ 726              		.thumb_func
+ 728              	loadcell_tare:
+ARM GAS  /tmp/ccDmgdmS.s 			page 17
+
+
+ 729              	.LFB233:
+ 162:Core/Src/loadcell.c **** 
+ 163:Core/Src/loadcell.c **** void loadcell_tare(void)
+ 164:Core/Src/loadcell.c **** {
+ 730              		.loc 1 164 1 is_stmt 1 view -0
+ 731              		.cfi_startproc
+ 732              		@ args = 0, pretend = 0, frame = 0
+ 733              		@ frame_needed = 0, uses_anonymous_args = 0
+ 734              		@ link register save eliminated.
+ 165:Core/Src/loadcell.c ****     if (s_avg_count > 0) {
+ 735              		.loc 1 165 5 view .LVU181
+ 736              		.loc 1 165 21 is_stmt 0 view .LVU182
+ 737 0000 044B     		ldr	r3, .L46
+ 738 0002 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 739              		.loc 1 165 8 view .LVU183
+ 740 0004 2BB1     		cbz	r3, .L44
+ 166:Core/Src/loadcell.c ****         s_offset = s_avg_sum / (int32_t)s_avg_count;
+ 741              		.loc 1 166 9 is_stmt 1 view .LVU184
+ 742              		.loc 1 166 30 is_stmt 0 view .LVU185
+ 743 0006 044A     		ldr	r2, .L46+4
+ 744 0008 1268     		ldr	r2, [r2]
+ 745 000a 92FBF3F3 		sdiv	r3, r2, r3
+ 746              		.loc 1 166 18 view .LVU186
+ 747 000e 034A     		ldr	r2, .L46+8
+ 748 0010 1360     		str	r3, [r2]
+ 749              	.L44:
+ 167:Core/Src/loadcell.c ****     }
+ 168:Core/Src/loadcell.c **** }
+ 750              		.loc 1 168 1 view .LVU187
+ 751 0012 7047     		bx	lr
+ 752              	.L47:
+ 753              		.align	2
+ 754              	.L46:
+ 755 0014 00000000 		.word	s_avg_count
+ 756 0018 00000000 		.word	s_avg_sum
+ 757 001c 00000000 		.word	s_offset
+ 758              		.cfi_endproc
+ 759              	.LFE233:
+ 761              		.section	.text.loadcell_set_scale,"ax",%progbits
+ 762              		.align	1
+ 763              		.global	loadcell_set_scale
+ 764              		.syntax unified
+ 765              		.thumb
+ 766              		.thumb_func
+ 768              	loadcell_set_scale:
+ 769              	.LVL27:
+ 770              	.LFB234:
+ 169:Core/Src/loadcell.c **** 
+ 170:Core/Src/loadcell.c **** void loadcell_set_scale(float scale)
+ 171:Core/Src/loadcell.c **** {
+ 771              		.loc 1 171 1 is_stmt 1 view -0
+ 772              		.cfi_startproc
+ 773              		@ args = 0, pretend = 0, frame = 0
+ 774              		@ frame_needed = 0, uses_anonymous_args = 0
+ 775              		@ link register save eliminated.
+ 172:Core/Src/loadcell.c ****     s_scale = scale;
+ 776              		.loc 1 172 5 view .LVU189
+ARM GAS  /tmp/ccDmgdmS.s 			page 18
+
+
+ 777              		.loc 1 172 13 is_stmt 0 view .LVU190
+ 778 0000 014B     		ldr	r3, .L49
+ 779 0002 83ED000A 		vstr.32	s0, [r3]
+ 173:Core/Src/loadcell.c **** }
+ 780              		.loc 1 173 1 view .LVU191
+ 781 0006 7047     		bx	lr
+ 782              	.L50:
+ 783              		.align	2
+ 784              	.L49:
+ 785 0008 00000000 		.word	s_scale
+ 786              		.cfi_endproc
+ 787              	.LFE234:
+ 789              		.section	.text.loadcell_get_scale,"ax",%progbits
+ 790              		.align	1
+ 791              		.global	loadcell_get_scale
+ 792              		.syntax unified
+ 793              		.thumb
+ 794              		.thumb_func
+ 796              	loadcell_get_scale:
+ 797              	.LFB235:
+ 174:Core/Src/loadcell.c **** 
+ 175:Core/Src/loadcell.c **** float loadcell_get_scale(void)
+ 176:Core/Src/loadcell.c **** {
+ 798              		.loc 1 176 1 is_stmt 1 view -0
+ 799              		.cfi_startproc
+ 800              		@ args = 0, pretend = 0, frame = 0
+ 801              		@ frame_needed = 0, uses_anonymous_args = 0
+ 802              		@ link register save eliminated.
+ 177:Core/Src/loadcell.c ****     return s_scale;
+ 803              		.loc 1 177 5 view .LVU193
+ 178:Core/Src/loadcell.c **** }
+ 804              		.loc 1 178 1 is_stmt 0 view .LVU194
+ 805 0000 014B     		ldr	r3, .L52
+ 806 0002 93ED000A 		vldr.32	s0, [r3]
+ 807 0006 7047     		bx	lr
+ 808              	.L53:
+ 809              		.align	2
+ 810              	.L52:
+ 811 0008 00000000 		.word	s_scale
+ 812              		.cfi_endproc
+ 813              	.LFE235:
+ 815              		.section	.text.loadcell_get_offset,"ax",%progbits
+ 816              		.align	1
+ 817              		.global	loadcell_get_offset
+ 818              		.syntax unified
+ 819              		.thumb
+ 820              		.thumb_func
+ 822              	loadcell_get_offset:
+ 823              	.LFB236:
+ 179:Core/Src/loadcell.c **** 
+ 180:Core/Src/loadcell.c **** int32_t loadcell_get_offset(void)
+ 181:Core/Src/loadcell.c **** {
+ 824              		.loc 1 181 1 is_stmt 1 view -0
+ 825              		.cfi_startproc
+ 826              		@ args = 0, pretend = 0, frame = 0
+ 827              		@ frame_needed = 0, uses_anonymous_args = 0
+ 828              		@ link register save eliminated.
+ARM GAS  /tmp/ccDmgdmS.s 			page 19
+
+
+ 182:Core/Src/loadcell.c ****     return s_offset;
+ 829              		.loc 1 182 5 view .LVU196
+ 183:Core/Src/loadcell.c **** }
+ 830              		.loc 1 183 1 is_stmt 0 view .LVU197
+ 831 0000 014B     		ldr	r3, .L55
+ 832 0002 1868     		ldr	r0, [r3]
+ 833 0004 7047     		bx	lr
+ 834              	.L56:
+ 835 0006 00BF     		.align	2
+ 836              	.L55:
+ 837 0008 00000000 		.word	s_offset
+ 838              		.cfi_endproc
+ 839              	.LFE236:
+ 841              		.section	.text.loadcell_set_offset,"ax",%progbits
+ 842              		.align	1
+ 843              		.global	loadcell_set_offset
+ 844              		.syntax unified
+ 845              		.thumb
+ 846              		.thumb_func
+ 848              	loadcell_set_offset:
+ 849              	.LVL28:
+ 850              	.LFB237:
+ 184:Core/Src/loadcell.c **** 
+ 185:Core/Src/loadcell.c **** void loadcell_set_offset(int32_t offset)
+ 186:Core/Src/loadcell.c **** {
+ 851              		.loc 1 186 1 is_stmt 1 view -0
+ 852              		.cfi_startproc
+ 853              		@ args = 0, pretend = 0, frame = 0
+ 854              		@ frame_needed = 0, uses_anonymous_args = 0
+ 855              		@ link register save eliminated.
+ 187:Core/Src/loadcell.c ****     s_offset = offset;
+ 856              		.loc 1 187 5 view .LVU199
+ 857              		.loc 1 187 14 is_stmt 0 view .LVU200
+ 858 0000 014B     		ldr	r3, .L58
+ 859 0002 1860     		str	r0, [r3]
+ 188:Core/Src/loadcell.c **** }
+ 860              		.loc 1 188 1 view .LVU201
+ 861 0004 7047     		bx	lr
+ 862              	.L59:
+ 863 0006 00BF     		.align	2
+ 864              	.L58:
+ 865 0008 00000000 		.word	s_offset
+ 866              		.cfi_endproc
+ 867              	.LFE237:
+ 869              		.section	.text.loadcell_read_raw,"ax",%progbits
+ 870              		.align	1
+ 871              		.global	loadcell_read_raw
+ 872              		.syntax unified
+ 873              		.thumb
+ 874              		.thumb_func
+ 876              	loadcell_read_raw:
+ 877              	.LFB238:
+ 189:Core/Src/loadcell.c **** 
+ 190:Core/Src/loadcell.c **** int32_t loadcell_read_raw(void)
+ 191:Core/Src/loadcell.c **** {
+ 878              		.loc 1 191 1 is_stmt 1 view -0
+ 879              		.cfi_startproc
+ARM GAS  /tmp/ccDmgdmS.s 			page 20
+
+
+ 880              		@ args = 0, pretend = 0, frame = 0
+ 881              		@ frame_needed = 0, uses_anonymous_args = 0
+ 882              		@ link register save eliminated.
+ 192:Core/Src/loadcell.c ****     if (s_avg_count > 0) {
+ 883              		.loc 1 192 5 view .LVU203
+ 884              		.loc 1 192 21 is_stmt 0 view .LVU204
+ 885 0000 044B     		ldr	r3, .L64
+ 886 0002 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 887              		.loc 1 192 8 view .LVU205
+ 888 0004 0BB9     		cbnz	r3, .L63
+ 193:Core/Src/loadcell.c ****         return s_avg_sum / (int32_t)s_avg_count;
+ 194:Core/Src/loadcell.c ****     }
+ 195:Core/Src/loadcell.c ****     return 0;
+ 889              		.loc 1 195 12 view .LVU206
+ 890 0006 0020     		movs	r0, #0
+ 196:Core/Src/loadcell.c **** }
+ 891              		.loc 1 196 1 view .LVU207
+ 892 0008 7047     		bx	lr
+ 893              	.L63:
+ 193:Core/Src/loadcell.c ****         return s_avg_sum / (int32_t)s_avg_count;
+ 894              		.loc 1 193 9 is_stmt 1 view .LVU208
+ 193:Core/Src/loadcell.c ****         return s_avg_sum / (int32_t)s_avg_count;
+ 895              		.loc 1 193 26 is_stmt 0 view .LVU209
+ 896 000a 034A     		ldr	r2, .L64+4
+ 897 000c 1068     		ldr	r0, [r2]
+ 898 000e 90FBF3F0 		sdiv	r0, r0, r3
+ 899 0012 7047     		bx	lr
+ 900              	.L65:
+ 901              		.align	2
+ 902              	.L64:
+ 903 0014 00000000 		.word	s_avg_count
+ 904 0018 00000000 		.word	s_avg_sum
+ 905              		.cfi_endproc
+ 906              	.LFE238:
+ 908              		.section	.bss.s_has_error,"aw",%nobits
+ 911              	s_has_error:
+ 912 0000 00       		.space	1
+ 913              		.section	.bss.s_last_tick,"aw",%nobits
+ 914              		.align	2
+ 917              	s_last_tick:
+ 918 0000 00000000 		.space	4
+ 919              		.section	.bss.s_avg_count,"aw",%nobits
+ 922              	s_avg_count:
+ 923 0000 00       		.space	1
+ 924              		.section	.bss.s_avg_sum,"aw",%nobits
+ 925              		.align	2
+ 928              	s_avg_sum:
+ 929 0000 00000000 		.space	4
+ 930              		.section	.bss.s_avg_idx,"aw",%nobits
+ 933              	s_avg_idx:
+ 934 0000 00       		.space	1
+ 935              		.section	.bss.s_avg_buf,"aw",%nobits
+ 936              		.align	2
+ 939              	s_avg_buf:
+ 940 0000 00000000 		.space	32
+ 940      00000000 
+ 940      00000000 
+ARM GAS  /tmp/ccDmgdmS.s 			page 21
+
+
+ 940      00000000 
+ 940      00000000 
+ 941              		.section	.bss.s_fast_valid,"aw",%nobits
+ 944              	s_fast_valid:
+ 945 0000 00       		.space	1
+ 946              		.section	.bss.s_force_fast_kg,"aw",%nobits
+ 947              		.align	2
+ 950              	s_force_fast_kg:
+ 951 0000 00000000 		.space	4
+ 952              		.section	.bss.s_force_kg,"aw",%nobits
+ 953              		.align	2
+ 956              	s_force_kg:
+ 957 0000 00000000 		.space	4
+ 958              		.section	.bss.s_offset,"aw",%nobits
+ 959              		.align	2
+ 962              	s_offset:
+ 963 0000 00000000 		.space	4
+ 964              		.section	.data.s_scale,"aw"
+ 965              		.align	2
+ 968              	s_scale:
+ 969 0000 0000803F 		.word	1065353216
+ 970              		.text
+ 971              	.Letext0:
+ 972              		.file 2 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/machine/_def
+ 973              		.file 3 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/sys/_stdint.
+ 974              		.file 4 "Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f411xe.h"
+ 975              		.file 5 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h"
+ARM GAS  /tmp/ccDmgdmS.s 			page 22
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 loadcell.c
+     /tmp/ccDmgdmS.s:21     .text.hx_delay:00000000 $t
+     /tmp/ccDmgdmS.s:26     .text.hx_delay:00000000 hx_delay
+     /tmp/ccDmgdmS.s:82     .text.hx711_read:00000000 $t
+     /tmp/ccDmgdmS.s:87     .text.hx711_read:00000000 hx711_read
+     /tmp/ccDmgdmS.s:222    .text.hx711_read:00000058 $d
+     /tmp/ccDmgdmS.s:228    .text.loadcell_init:00000000 $t
+     /tmp/ccDmgdmS.s:234    .text.loadcell_init:00000000 loadcell_init
+     /tmp/ccDmgdmS.s:304    .text.loadcell_init:0000003c $d
+     /tmp/ccDmgdmS.s:968    .data.s_scale:00000000 s_scale
+     /tmp/ccDmgdmS.s:962    .bss.s_offset:00000000 s_offset
+     /tmp/ccDmgdmS.s:933    .bss.s_avg_idx:00000000 s_avg_idx
+     /tmp/ccDmgdmS.s:928    .bss.s_avg_sum:00000000 s_avg_sum
+     /tmp/ccDmgdmS.s:922    .bss.s_avg_count:00000000 s_avg_count
+     /tmp/ccDmgdmS.s:911    .bss.s_has_error:00000000 s_has_error
+     /tmp/ccDmgdmS.s:917    .bss.s_last_tick:00000000 s_last_tick
+     /tmp/ccDmgdmS.s:950    .bss.s_force_fast_kg:00000000 s_force_fast_kg
+     /tmp/ccDmgdmS.s:944    .bss.s_fast_valid:00000000 s_fast_valid
+     /tmp/ccDmgdmS.s:318    .text.loadcell_is_ready:00000000 $t
+     /tmp/ccDmgdmS.s:324    .text.loadcell_is_ready:00000000 loadcell_is_ready
+     /tmp/ccDmgdmS.s:350    .text.loadcell_is_ready:00000010 $d
+     /tmp/ccDmgdmS.s:355    .text.loadcell_update:00000000 $t
+     /tmp/ccDmgdmS.s:361    .text.loadcell_update:00000000 loadcell_update
+     /tmp/ccDmgdmS.s:568    .text.loadcell_update:000000f0 $d
+     /tmp/ccDmgdmS.s:939    .bss.s_avg_buf:00000000 s_avg_buf
+     /tmp/ccDmgdmS.s:956    .bss.s_force_kg:00000000 s_force_kg
+     /tmp/ccDmgdmS.s:584    .text.loadcell_get_kg:00000000 $t
+     /tmp/ccDmgdmS.s:590    .text.loadcell_get_kg:00000000 loadcell_get_kg
+     /tmp/ccDmgdmS.s:605    .text.loadcell_get_kg:00000008 $d
+     /tmp/ccDmgdmS.s:610    .text.loadcell_get_kN:00000000 $t
+     /tmp/ccDmgdmS.s:616    .text.loadcell_get_kN:00000000 loadcell_get_kN
+     /tmp/ccDmgdmS.s:634    .text.loadcell_get_kN:00000010 $d
+     /tmp/ccDmgdmS.s:640    .text.loadcell_get_fast_kg:00000000 $t
+     /tmp/ccDmgdmS.s:646    .text.loadcell_get_fast_kg:00000000 loadcell_get_fast_kg
+     /tmp/ccDmgdmS.s:661    .text.loadcell_get_fast_kg:00000008 $d
+     /tmp/ccDmgdmS.s:666    .text.loadcell_get_fast_kN:00000000 $t
+     /tmp/ccDmgdmS.s:672    .text.loadcell_get_fast_kN:00000000 loadcell_get_fast_kN
+     /tmp/ccDmgdmS.s:690    .text.loadcell_get_fast_kN:00000010 $d
+     /tmp/ccDmgdmS.s:696    .text.loadcell_has_error:00000000 $t
+     /tmp/ccDmgdmS.s:702    .text.loadcell_has_error:00000000 loadcell_has_error
+     /tmp/ccDmgdmS.s:717    .text.loadcell_has_error:00000008 $d
+     /tmp/ccDmgdmS.s:722    .text.loadcell_tare:00000000 $t
+     /tmp/ccDmgdmS.s:728    .text.loadcell_tare:00000000 loadcell_tare
+     /tmp/ccDmgdmS.s:755    .text.loadcell_tare:00000014 $d
+     /tmp/ccDmgdmS.s:762    .text.loadcell_set_scale:00000000 $t
+     /tmp/ccDmgdmS.s:768    .text.loadcell_set_scale:00000000 loadcell_set_scale
+     /tmp/ccDmgdmS.s:785    .text.loadcell_set_scale:00000008 $d
+     /tmp/ccDmgdmS.s:790    .text.loadcell_get_scale:00000000 $t
+     /tmp/ccDmgdmS.s:796    .text.loadcell_get_scale:00000000 loadcell_get_scale
+     /tmp/ccDmgdmS.s:811    .text.loadcell_get_scale:00000008 $d
+     /tmp/ccDmgdmS.s:816    .text.loadcell_get_offset:00000000 $t
+     /tmp/ccDmgdmS.s:822    .text.loadcell_get_offset:00000000 loadcell_get_offset
+     /tmp/ccDmgdmS.s:837    .text.loadcell_get_offset:00000008 $d
+     /tmp/ccDmgdmS.s:842    .text.loadcell_set_offset:00000000 $t
+     /tmp/ccDmgdmS.s:848    .text.loadcell_set_offset:00000000 loadcell_set_offset
+     /tmp/ccDmgdmS.s:865    .text.loadcell_set_offset:00000008 $d
+ARM GAS  /tmp/ccDmgdmS.s 			page 23
+
+
+     /tmp/ccDmgdmS.s:870    .text.loadcell_read_raw:00000000 $t
+     /tmp/ccDmgdmS.s:876    .text.loadcell_read_raw:00000000 loadcell_read_raw
+     /tmp/ccDmgdmS.s:903    .text.loadcell_read_raw:00000014 $d
+     /tmp/ccDmgdmS.s:912    .bss.s_has_error:00000000 $d
+     /tmp/ccDmgdmS.s:914    .bss.s_last_tick:00000000 $d
+     /tmp/ccDmgdmS.s:923    .bss.s_avg_count:00000000 $d
+     /tmp/ccDmgdmS.s:925    .bss.s_avg_sum:00000000 $d
+     /tmp/ccDmgdmS.s:934    .bss.s_avg_idx:00000000 $d
+     /tmp/ccDmgdmS.s:936    .bss.s_avg_buf:00000000 $d
+     /tmp/ccDmgdmS.s:945    .bss.s_fast_valid:00000000 $d
+     /tmp/ccDmgdmS.s:947    .bss.s_force_fast_kg:00000000 $d
+     /tmp/ccDmgdmS.s:953    .bss.s_force_kg:00000000 $d
+     /tmp/ccDmgdmS.s:959    .bss.s_offset:00000000 $d
+     /tmp/ccDmgdmS.s:965    .data.s_scale:00000000 $d
+
+UNDEFINED SYMBOLS
+HAL_GetTick

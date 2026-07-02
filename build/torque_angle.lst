@@ -1,0 +1,601 @@
+ARM GAS  /tmp/ccL4Pfha.s 			page 1
+
+
+   1              		.cpu cortex-m4
+   2              		.arch armv7e-m
+   3              		.fpu fpv4-sp-d16
+   4              		.eabi_attribute 27, 1
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 1
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"torque_angle.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.file 1 "Core/Src/torque_angle.c"
+  20              		.section	.text.adc_read_absolute,"ax",%progbits
+  21              		.align	1
+  22              		.syntax unified
+  23              		.thumb
+  24              		.thumb_func
+  26              	adc_read_absolute:
+  27              	.LFB220:
+   1:Core/Src/torque_angle.c **** #include "torque_angle.h"
+   2:Core/Src/torque_angle.c **** #include "adc_shared.h"
+   3:Core/Src/torque_angle.c **** #include "config.h"
+   4:Core/Src/torque_angle.c **** #include "stm32f4xx_hal.h"
+   5:Core/Src/torque_angle.c **** 
+   6:Core/Src/torque_angle.c **** static float s_zero_deg   = 0.0f;
+   7:Core/Src/torque_angle.c **** static float s_target_deg = ANGLE_DEFAULT_DEG;
+   8:Core/Src/torque_angle.c **** 
+   9:Core/Src/torque_angle.c **** static float adc_read_absolute(void)
+  10:Core/Src/torque_angle.c **** {
+  28              		.loc 1 10 1 view -0
+  29              		.cfi_startproc
+  30              		@ args = 0, pretend = 0, frame = 8
+  31              		@ frame_needed = 0, uses_anonymous_args = 0
+  32 0000 00B5     		push	{lr}
+  33              	.LCFI0:
+  34              		.cfi_def_cfa_offset 4
+  35              		.cfi_offset 14, -4
+  36 0002 83B0     		sub	sp, sp, #12
+  37              	.LCFI1:
+  38              		.cfi_def_cfa_offset 16
+  11:Core/Src/torque_angle.c ****     uint16_t raw = 0U;
+  39              		.loc 1 11 5 view .LVU1
+  40              		.loc 1 11 14 is_stmt 0 view .LVU2
+  41 0004 0023     		movs	r3, #0
+  42 0006 ADF80630 		strh	r3, [sp, #6]	@ movhi
+  12:Core/Src/torque_angle.c **** 
+  13:Core/Src/torque_angle.c ****     if (!adc_shared_read_channel(ADC_CHANNEL_1, ADC_SAMPLETIME_480CYCLES, &raw)) {
+  43              		.loc 1 13 5 is_stmt 1 view .LVU3
+  44              		.loc 1 13 10 is_stmt 0 view .LVU4
+  45 000a 0DF10602 		add	r2, sp, #6
+ARM GAS  /tmp/ccL4Pfha.s 			page 2
+
+
+  46 000e 0721     		movs	r1, #7
+  47 0010 0120     		movs	r0, #1
+  48 0012 FFF7FEFF 		bl	adc_shared_read_channel
+  49              	.LVL0:
+  50              		.loc 1 13 8 discriminator 1 view .LVU5
+  51 0016 20B3     		cbz	r0, .L7
+  14:Core/Src/torque_angle.c ****         return s_zero_deg;
+  15:Core/Src/torque_angle.c ****     }
+  16:Core/Src/torque_angle.c **** 
+  17:Core/Src/torque_angle.c ****     float v_pin    = ((float)raw / 4095.0f) * ANGLE_ADC_VREF;
+  52              		.loc 1 17 5 is_stmt 1 view .LVU6
+  53              		.loc 1 17 23 is_stmt 0 view .LVU7
+  54 0018 BDF80630 		ldrh	r3, [sp, #6]
+  55 001c 07EE103A 		vmov	s14, r3	@ int
+  56 0020 B8EE477A 		vcvt.f32.u32	s14, s14
+  57              		.loc 1 17 34 view .LVU8
+  58 0024 DFED136A 		vldr.32	s13, .L8
+  59 0028 C7EE267A 		vdiv.f32	s15, s14, s13
+  60              		.loc 1 17 11 view .LVU9
+  61 002c 9FED127A 		vldr.32	s14, .L8+4
+  62 0030 67EE877A 		vmul.f32	s15, s15, s14
+  63              	.LVL1:
+  18:Core/Src/torque_angle.c ****     float v_sensor = v_pin / ANGLE_DIVIDER_RATIO;
+  64              		.loc 1 18 5 is_stmt 1 view .LVU10
+  65              		.loc 1 18 11 is_stmt 0 view .LVU11
+  66 0034 77EEA77A 		vadd.f32	s15, s15, s15
+  67              	.LVL2:
+  19:Core/Src/torque_angle.c ****     float deg      = (v_sensor / ANGLE_SENSOR_V_MAX) * 360.0f;
+  68              		.loc 1 19 5 is_stmt 1 view .LVU12
+  69              		.loc 1 19 32 is_stmt 0 view .LVU13
+  70 0038 B1EE047A 		vmov.f32	s14, #5.0e+0
+  71              	.LVL3:
+  72              		.loc 1 19 32 view .LVU14
+  73 003c 87EE870A 		vdiv.f32	s0, s15, s14
+  74              		.loc 1 19 11 view .LVU15
+  75 0040 DFED0E7A 		vldr.32	s15, .L8+8
+  76              	.LVL4:
+  77              		.loc 1 19 11 view .LVU16
+  78 0044 20EE270A 		vmul.f32	s0, s0, s15
+  79              	.LVL5:
+  20:Core/Src/torque_angle.c **** 
+  21:Core/Src/torque_angle.c ****     if (deg < 0.0f)   deg = 0.0f;
+  80              		.loc 1 21 5 is_stmt 1 view .LVU17
+  81              		.loc 1 21 8 is_stmt 0 view .LVU18
+  82 0048 B5EEC00A 		vcmpe.f32	s0, #0
+  83 004c F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+  84 0050 0CD4     		bmi	.L4
+  22:Core/Src/torque_angle.c ****     if (deg > 360.0f) deg = 360.0f;
+  85              		.loc 1 22 5 is_stmt 1 view .LVU19
+  86              		.loc 1 22 8 is_stmt 0 view .LVU20
+  87 0052 B4EEE70A 		vcmpe.f32	s0, s15
+  88 0056 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+  89 005a 05DD     		ble	.L1
+  90              		.loc 1 22 27 discriminator 1 view .LVU21
+  91 005c 9FED070A 		vldr.32	s0, .L8+8
+  92              	.LVL6:
+  93              		.loc 1 22 27 discriminator 1 view .LVU22
+ARM GAS  /tmp/ccL4Pfha.s 			page 3
+
+
+  94 0060 02E0     		b	.L1
+  95              	.LVL7:
+  96              	.L7:
+  14:Core/Src/torque_angle.c ****     }
+  97              		.loc 1 14 9 is_stmt 1 view .LVU23
+  14:Core/Src/torque_angle.c ****     }
+  98              		.loc 1 14 16 is_stmt 0 view .LVU24
+  99 0062 074B     		ldr	r3, .L8+12
+ 100 0064 93ED000A 		vldr.32	s0, [r3]
+ 101              	.L1:
+  23:Core/Src/torque_angle.c ****     return deg;
+  24:Core/Src/torque_angle.c **** }
+ 102              		.loc 1 24 1 view .LVU25
+ 103 0068 03B0     		add	sp, sp, #12
+ 104              	.LCFI2:
+ 105              		.cfi_remember_state
+ 106              		.cfi_def_cfa_offset 4
+ 107              		@ sp needed
+ 108 006a 00BD     		pop	{pc}
+ 109              	.LVL8:
+ 110              	.L4:
+ 111              	.LCFI3:
+ 112              		.cfi_restore_state
+  21:Core/Src/torque_angle.c ****     if (deg > 360.0f) deg = 360.0f;
+ 113              		.loc 1 21 27 discriminator 1 view .LVU26
+ 114 006c 9FED050A 		vldr.32	s0, .L8+16
+ 115              	.LVL9:
+  21:Core/Src/torque_angle.c ****     if (deg > 360.0f) deg = 360.0f;
+ 116              		.loc 1 21 27 discriminator 1 view .LVU27
+ 117 0070 FAE7     		b	.L1
+ 118              	.L9:
+ 119 0072 00BF     		.align	2
+ 120              	.L8:
+ 121 0074 00F07F45 		.word	1166012416
+ 122 0078 33335340 		.word	1079194419
+ 123 007c 0000B443 		.word	1135869952
+ 124 0080 00000000 		.word	s_zero_deg
+ 125 0084 00000000 		.word	0
+ 126              		.cfi_endproc
+ 127              	.LFE220:
+ 129              		.section	.text.torque_angle_init,"ax",%progbits
+ 130              		.align	1
+ 131              		.global	torque_angle_init
+ 132              		.syntax unified
+ 133              		.thumb
+ 134              		.thumb_func
+ 136              	torque_angle_init:
+ 137              	.LFB221:
+  25:Core/Src/torque_angle.c **** 
+  26:Core/Src/torque_angle.c **** void torque_angle_init(void)
+  27:Core/Src/torque_angle.c **** {
+ 138              		.loc 1 27 1 is_stmt 1 view -0
+ 139              		.cfi_startproc
+ 140              		@ args = 0, pretend = 0, frame = 0
+ 141              		@ frame_needed = 0, uses_anonymous_args = 0
+ 142 0000 08B5     		push	{r3, lr}
+ 143              	.LCFI4:
+ARM GAS  /tmp/ccL4Pfha.s 			page 4
+
+
+ 144              		.cfi_def_cfa_offset 8
+ 145              		.cfi_offset 3, -8
+ 146              		.cfi_offset 14, -4
+  28:Core/Src/torque_angle.c ****     adc_shared_init();
+ 147              		.loc 1 28 5 view .LVU29
+ 148 0002 FFF7FEFF 		bl	adc_shared_init
+ 149              	.LVL10:
+  29:Core/Src/torque_angle.c ****     s_zero_deg = adc_read_absolute();
+ 150              		.loc 1 29 5 view .LVU30
+ 151              		.loc 1 29 18 is_stmt 0 view .LVU31
+ 152 0006 FFF7FEFF 		bl	adc_read_absolute
+ 153              	.LVL11:
+ 154              		.loc 1 29 16 discriminator 1 view .LVU32
+ 155 000a 024B     		ldr	r3, .L12
+ 156 000c 83ED000A 		vstr.32	s0, [r3]
+  30:Core/Src/torque_angle.c **** }
+ 157              		.loc 1 30 1 view .LVU33
+ 158 0010 08BD     		pop	{r3, pc}
+ 159              	.L13:
+ 160 0012 00BF     		.align	2
+ 161              	.L12:
+ 162 0014 00000000 		.word	s_zero_deg
+ 163              		.cfi_endproc
+ 164              	.LFE221:
+ 166              		.section	.text.torque_angle_zero,"ax",%progbits
+ 167              		.align	1
+ 168              		.global	torque_angle_zero
+ 169              		.syntax unified
+ 170              		.thumb
+ 171              		.thumb_func
+ 173              	torque_angle_zero:
+ 174              	.LFB222:
+  31:Core/Src/torque_angle.c **** 
+  32:Core/Src/torque_angle.c **** void torque_angle_zero(void)
+  33:Core/Src/torque_angle.c **** {
+ 175              		.loc 1 33 1 is_stmt 1 view -0
+ 176              		.cfi_startproc
+ 177              		@ args = 0, pretend = 0, frame = 0
+ 178              		@ frame_needed = 0, uses_anonymous_args = 0
+ 179 0000 08B5     		push	{r3, lr}
+ 180              	.LCFI5:
+ 181              		.cfi_def_cfa_offset 8
+ 182              		.cfi_offset 3, -8
+ 183              		.cfi_offset 14, -4
+  34:Core/Src/torque_angle.c ****     s_zero_deg = adc_read_absolute();
+ 184              		.loc 1 34 5 view .LVU35
+ 185              		.loc 1 34 18 is_stmt 0 view .LVU36
+ 186 0002 FFF7FEFF 		bl	adc_read_absolute
+ 187              	.LVL12:
+ 188              		.loc 1 34 16 discriminator 1 view .LVU37
+ 189 0006 024B     		ldr	r3, .L16
+ 190 0008 83ED000A 		vstr.32	s0, [r3]
+  35:Core/Src/torque_angle.c **** }
+ 191              		.loc 1 35 1 view .LVU38
+ 192 000c 08BD     		pop	{r3, pc}
+ 193              	.L17:
+ 194 000e 00BF     		.align	2
+ARM GAS  /tmp/ccL4Pfha.s 			page 5
+
+
+ 195              	.L16:
+ 196 0010 00000000 		.word	s_zero_deg
+ 197              		.cfi_endproc
+ 198              	.LFE222:
+ 200              		.section	.text.torque_angle_get_deg,"ax",%progbits
+ 201              		.align	1
+ 202              		.global	torque_angle_get_deg
+ 203              		.syntax unified
+ 204              		.thumb
+ 205              		.thumb_func
+ 207              	torque_angle_get_deg:
+ 208              	.LFB223:
+  36:Core/Src/torque_angle.c **** 
+  37:Core/Src/torque_angle.c **** float torque_angle_get_deg(void)
+  38:Core/Src/torque_angle.c **** {
+ 209              		.loc 1 38 1 is_stmt 1 view -0
+ 210              		.cfi_startproc
+ 211              		@ args = 0, pretend = 0, frame = 0
+ 212              		@ frame_needed = 0, uses_anonymous_args = 0
+ 213 0000 08B5     		push	{r3, lr}
+ 214              	.LCFI6:
+ 215              		.cfi_def_cfa_offset 8
+ 216              		.cfi_offset 3, -8
+ 217              		.cfi_offset 14, -4
+  39:Core/Src/torque_angle.c ****     float abs_now = adc_read_absolute();
+ 218              		.loc 1 39 5 view .LVU40
+ 219              		.loc 1 39 21 is_stmt 0 view .LVU41
+ 220 0002 FFF7FEFF 		bl	adc_read_absolute
+ 221              	.LVL13:
+  40:Core/Src/torque_angle.c ****     float delta   = abs_now - s_zero_deg;
+ 222              		.loc 1 40 5 is_stmt 1 view .LVU42
+ 223              		.loc 1 40 29 is_stmt 0 view .LVU43
+ 224 0006 124B     		ldr	r3, .L31
+ 225 0008 D3ED007A 		vldr.32	s15, [r3]
+ 226              		.loc 1 40 11 view .LVU44
+ 227 000c 30EE670A 		vsub.f32	s0, s0, s15
+ 228              	.LVL14:
+  41:Core/Src/torque_angle.c **** 
+  42:Core/Src/torque_angle.c ****     if (delta < -180.0f) delta += 360.0f;
+ 229              		.loc 1 42 5 is_stmt 1 view .LVU45
+ 230              		.loc 1 42 8 is_stmt 0 view .LVU46
+ 231 0010 DFED107A 		vldr.32	s15, .L31+4
+ 232 0014 B4EEE70A 		vcmpe.f32	s0, s15
+ 233 0018 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 234 001c 09D5     		bpl	.L28
+ 235              		.loc 1 42 26 is_stmt 1 discriminator 1 view .LVU47
+ 236              		.loc 1 42 32 is_stmt 0 discriminator 1 view .LVU48
+ 237 001e DFED0E7A 		vldr.32	s15, .L31+8
+ 238 0022 30EE270A 		vadd.f32	s0, s0, s15
+ 239              	.LVL15:
+  43:Core/Src/torque_angle.c ****     if (delta >  180.0f) delta -= 360.0f;
+ 240              		.loc 1 43 5 is_stmt 1 view .LVU49
+ 241              	.L21:
+  44:Core/Src/torque_angle.c ****     return (delta < 0.0f) ? 0.0f : delta;
+ 242              		.loc 1 44 5 view .LVU50
+ 243              		.loc 1 44 34 is_stmt 0 view .LVU51
+ 244 0026 B5EEC00A 		vcmpe.f32	s0, #0
+ARM GAS  /tmp/ccL4Pfha.s 			page 6
+
+
+ 245 002a F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 246 002e 0CD4     		bmi	.L30
+ 247              	.LVL16:
+ 248              	.L18:
+  45:Core/Src/torque_angle.c **** }
+ 249              		.loc 1 45 1 view .LVU52
+ 250 0030 08BD     		pop	{r3, pc}
+ 251              	.LVL17:
+ 252              	.L28:
+  43:Core/Src/torque_angle.c ****     if (delta >  180.0f) delta -= 360.0f;
+ 253              		.loc 1 43 5 is_stmt 1 view .LVU53
+  43:Core/Src/torque_angle.c ****     if (delta >  180.0f) delta -= 360.0f;
+ 254              		.loc 1 43 8 is_stmt 0 view .LVU54
+ 255 0032 DFED0A7A 		vldr.32	s15, .L31+12
+ 256 0036 B4EEE70A 		vcmpe.f32	s0, s15
+ 257 003a F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 258 003e F2DD     		ble	.L21
+  43:Core/Src/torque_angle.c ****     if (delta >  180.0f) delta -= 360.0f;
+ 259              		.loc 1 43 26 is_stmt 1 discriminator 1 view .LVU55
+  43:Core/Src/torque_angle.c ****     if (delta >  180.0f) delta -= 360.0f;
+ 260              		.loc 1 43 32 is_stmt 0 discriminator 1 view .LVU56
+ 261 0040 DFED057A 		vldr.32	s15, .L31+8
+ 262 0044 30EE670A 		vsub.f32	s0, s0, s15
+ 263              	.LVL18:
+  43:Core/Src/torque_angle.c ****     if (delta >  180.0f) delta -= 360.0f;
+ 264              		.loc 1 43 32 discriminator 1 view .LVU57
+ 265 0048 EDE7     		b	.L21
+ 266              	.LVL19:
+ 267              	.L30:
+  44:Core/Src/torque_angle.c ****     return (delta < 0.0f) ? 0.0f : delta;
+ 268              		.loc 1 44 34 discriminator 1 view .LVU58
+ 269 004a 9FED050A 		vldr.32	s0, .L31+16
+ 270              	.LVL20:
+  44:Core/Src/torque_angle.c ****     return (delta < 0.0f) ? 0.0f : delta;
+ 271              		.loc 1 44 34 view .LVU59
+ 272 004e EFE7     		b	.L18
+ 273              	.L32:
+ 274              		.align	2
+ 275              	.L31:
+ 276 0050 00000000 		.word	s_zero_deg
+ 277 0054 000034C3 		.word	-1020002304
+ 278 0058 0000B443 		.word	1135869952
+ 279 005c 00003443 		.word	1127481344
+ 280 0060 00000000 		.word	0
+ 281              		.cfi_endproc
+ 282              	.LFE223:
+ 284              		.section	.text.torque_angle_set_target,"ax",%progbits
+ 285              		.align	1
+ 286              		.global	torque_angle_set_target
+ 287              		.syntax unified
+ 288              		.thumb
+ 289              		.thumb_func
+ 291              	torque_angle_set_target:
+ 292              	.LVL21:
+ 293              	.LFB224:
+  46:Core/Src/torque_angle.c **** 
+  47:Core/Src/torque_angle.c **** void torque_angle_set_target(float deg)
+ARM GAS  /tmp/ccL4Pfha.s 			page 7
+
+
+  48:Core/Src/torque_angle.c **** {
+ 294              		.loc 1 48 1 is_stmt 1 view -0
+ 295              		.cfi_startproc
+ 296              		@ args = 0, pretend = 0, frame = 0
+ 297              		@ frame_needed = 0, uses_anonymous_args = 0
+ 298              		@ link register save eliminated.
+  49:Core/Src/torque_angle.c ****     if (deg < 0.0f)          deg = 0.0f;
+ 299              		.loc 1 49 5 view .LVU61
+ 300              		.loc 1 49 8 is_stmt 0 view .LVU62
+ 301 0000 B5EEC00A 		vcmpe.f32	s0, #0
+ 302 0004 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 303 0008 09D4     		bmi	.L35
+  50:Core/Src/torque_angle.c ****     if (deg > ANGLE_MAX_DEG) deg = ANGLE_MAX_DEG;
+ 304              		.loc 1 50 5 is_stmt 1 view .LVU63
+ 305              		.loc 1 50 8 is_stmt 0 view .LVU64
+ 306 000a DFED087A 		vldr.32	s15, .L37
+ 307 000e B4EEE70A 		vcmpe.f32	s0, s15
+ 308 0012 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 309 0016 04DD     		ble	.L34
+ 310              		.loc 1 50 34 discriminator 1 view .LVU65
+ 311 0018 9FED040A 		vldr.32	s0, .L37
+ 312              	.LVL22:
+ 313              		.loc 1 50 34 discriminator 1 view .LVU66
+ 314 001c 01E0     		b	.L34
+ 315              	.LVL23:
+ 316              	.L35:
+  49:Core/Src/torque_angle.c ****     if (deg < 0.0f)          deg = 0.0f;
+ 317              		.loc 1 49 34 discriminator 1 view .LVU67
+ 318 001e 9FED040A 		vldr.32	s0, .L37+4
+ 319              	.LVL24:
+ 320              	.L34:
+  51:Core/Src/torque_angle.c ****     s_target_deg = deg;
+ 321              		.loc 1 51 5 is_stmt 1 view .LVU68
+ 322              		.loc 1 51 18 is_stmt 0 view .LVU69
+ 323 0022 044B     		ldr	r3, .L37+8
+ 324 0024 83ED000A 		vstr.32	s0, [r3]
+  52:Core/Src/torque_angle.c **** }
+ 325              		.loc 1 52 1 view .LVU70
+ 326 0028 7047     		bx	lr
+ 327              	.L38:
+ 328 002a 00BF     		.align	2
+ 329              	.L37:
+ 330 002c 0000B443 		.word	1135869952
+ 331 0030 00000000 		.word	0
+ 332 0034 00000000 		.word	s_target_deg
+ 333              		.cfi_endproc
+ 334              	.LFE224:
+ 336              		.section	.text.torque_angle_get_target,"ax",%progbits
+ 337              		.align	1
+ 338              		.global	torque_angle_get_target
+ 339              		.syntax unified
+ 340              		.thumb
+ 341              		.thumb_func
+ 343              	torque_angle_get_target:
+ 344              	.LFB225:
+  53:Core/Src/torque_angle.c **** 
+  54:Core/Src/torque_angle.c **** float torque_angle_get_target(void)
+ARM GAS  /tmp/ccL4Pfha.s 			page 8
+
+
+  55:Core/Src/torque_angle.c **** {
+ 345              		.loc 1 55 1 is_stmt 1 view -0
+ 346              		.cfi_startproc
+ 347              		@ args = 0, pretend = 0, frame = 0
+ 348              		@ frame_needed = 0, uses_anonymous_args = 0
+ 349              		@ link register save eliminated.
+  56:Core/Src/torque_angle.c ****     return s_target_deg;
+ 350              		.loc 1 56 5 view .LVU72
+  57:Core/Src/torque_angle.c **** }
+ 351              		.loc 1 57 1 is_stmt 0 view .LVU73
+ 352 0000 014B     		ldr	r3, .L40
+ 353 0002 93ED000A 		vldr.32	s0, [r3]
+ 354 0006 7047     		bx	lr
+ 355              	.L41:
+ 356              		.align	2
+ 357              	.L40:
+ 358 0008 00000000 		.word	s_target_deg
+ 359              		.cfi_endproc
+ 360              	.LFE225:
+ 362              		.section	.text.torque_angle_is_reached,"ax",%progbits
+ 363              		.align	1
+ 364              		.global	torque_angle_is_reached
+ 365              		.syntax unified
+ 366              		.thumb
+ 367              		.thumb_func
+ 369              	torque_angle_is_reached:
+ 370              	.LFB226:
+  58:Core/Src/torque_angle.c **** 
+  59:Core/Src/torque_angle.c **** bool torque_angle_is_reached(void)
+  60:Core/Src/torque_angle.c **** {
+ 371              		.loc 1 60 1 is_stmt 1 view -0
+ 372              		.cfi_startproc
+ 373              		@ args = 0, pretend = 0, frame = 0
+ 374              		@ frame_needed = 0, uses_anonymous_args = 0
+ 375 0000 08B5     		push	{r3, lr}
+ 376              	.LCFI7:
+ 377              		.cfi_def_cfa_offset 8
+ 378              		.cfi_offset 3, -8
+ 379              		.cfi_offset 14, -4
+  61:Core/Src/torque_angle.c ****     return torque_angle_get_deg() >= s_target_deg;
+ 380              		.loc 1 61 5 view .LVU75
+ 381              		.loc 1 61 12 is_stmt 0 view .LVU76
+ 382 0002 FFF7FEFF 		bl	torque_angle_get_deg
+ 383              	.LVL25:
+ 384              		.loc 1 61 5 discriminator 1 view .LVU77
+ 385 0006 054B     		ldr	r3, .L44
+ 386 0008 D3ED007A 		vldr.32	s15, [r3]
+ 387              		.loc 1 61 35 discriminator 1 view .LVU78
+ 388 000c B4EEE70A 		vcmpe.f32	s0, s15
+ 389 0010 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+  62:Core/Src/torque_angle.c **** }
+ 390              		.loc 1 62 1 view .LVU79
+ 391 0014 ACBF     		ite	ge
+ 392 0016 0120     		movge	r0, #1
+ 393 0018 0020     		movlt	r0, #0
+ 394 001a 08BD     		pop	{r3, pc}
+ 395              	.L45:
+ARM GAS  /tmp/ccL4Pfha.s 			page 9
+
+
+ 396              		.align	2
+ 397              	.L44:
+ 398 001c 00000000 		.word	s_target_deg
+ 399              		.cfi_endproc
+ 400              	.LFE226:
+ 402              		.section	.text.torque_angle_get_raw,"ax",%progbits
+ 403              		.align	1
+ 404              		.global	torque_angle_get_raw
+ 405              		.syntax unified
+ 406              		.thumb
+ 407              		.thumb_func
+ 409              	torque_angle_get_raw:
+ 410              	.LFB227:
+  63:Core/Src/torque_angle.c **** 
+  64:Core/Src/torque_angle.c **** uint16_t torque_angle_get_raw(void)
+  65:Core/Src/torque_angle.c **** {
+ 411              		.loc 1 65 1 is_stmt 1 view -0
+ 412              		.cfi_startproc
+ 413              		@ args = 0, pretend = 0, frame = 8
+ 414              		@ frame_needed = 0, uses_anonymous_args = 0
+ 415 0000 00B5     		push	{lr}
+ 416              	.LCFI8:
+ 417              		.cfi_def_cfa_offset 4
+ 418              		.cfi_offset 14, -4
+ 419 0002 83B0     		sub	sp, sp, #12
+ 420              	.LCFI9:
+ 421              		.cfi_def_cfa_offset 16
+  66:Core/Src/torque_angle.c ****     uint16_t raw = 0U;
+ 422              		.loc 1 66 5 view .LVU81
+ 423              		.loc 1 66 14 is_stmt 0 view .LVU82
+ 424 0004 0023     		movs	r3, #0
+ 425 0006 ADF80630 		strh	r3, [sp, #6]	@ movhi
+  67:Core/Src/torque_angle.c ****     if (!adc_shared_read_channel(ADC_CHANNEL_1, ADC_SAMPLETIME_480CYCLES, &raw)) {
+ 426              		.loc 1 67 5 is_stmt 1 view .LVU83
+ 427              		.loc 1 67 10 is_stmt 0 view .LVU84
+ 428 000a 0DF10602 		add	r2, sp, #6
+ 429 000e 0721     		movs	r1, #7
+ 430 0010 0120     		movs	r0, #1
+ 431 0012 FFF7FEFF 		bl	adc_shared_read_channel
+ 432              	.LVL26:
+ 433              		.loc 1 67 8 discriminator 1 view .LVU85
+ 434 0016 18B1     		cbz	r0, .L48
+  68:Core/Src/torque_angle.c ****         return 0U;
+  69:Core/Src/torque_angle.c ****     }
+  70:Core/Src/torque_angle.c ****     return raw;
+ 435              		.loc 1 70 5 is_stmt 1 view .LVU86
+ 436              		.loc 1 70 12 is_stmt 0 view .LVU87
+ 437 0018 BDF80600 		ldrh	r0, [sp, #6]
+ 438              	.L47:
+  71:Core/Src/torque_angle.c **** }
+ 439              		.loc 1 71 1 view .LVU88
+ 440 001c 03B0     		add	sp, sp, #12
+ 441              	.LCFI10:
+ 442              		.cfi_remember_state
+ 443              		.cfi_def_cfa_offset 4
+ 444              		@ sp needed
+ 445 001e 00BD     		pop	{pc}
+ARM GAS  /tmp/ccL4Pfha.s 			page 10
+
+
+ 446              	.L48:
+ 447              	.LCFI11:
+ 448              		.cfi_restore_state
+  68:Core/Src/torque_angle.c ****         return 0U;
+ 449              		.loc 1 68 16 view .LVU89
+ 450 0020 0020     		movs	r0, #0
+ 451 0022 FBE7     		b	.L47
+ 452              		.cfi_endproc
+ 453              	.LFE227:
+ 455              		.section	.data.s_target_deg,"aw"
+ 456              		.align	2
+ 459              	s_target_deg:
+ 460 0000 0000B442 		.word	1119092736
+ 461              		.section	.bss.s_zero_deg,"aw",%nobits
+ 462              		.align	2
+ 465              	s_zero_deg:
+ 466 0000 00000000 		.space	4
+ 467              		.text
+ 468              	.Letext0:
+ 469              		.file 2 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/machine/_def
+ 470              		.file 3 "/home/alpri/st/stm32cubeclt_1.21.0/GNU-tools-for-STM32/arm-none-eabi/include/sys/_stdint.
+ 471              		.file 4 "Core/Inc/adc_shared.h"
+ARM GAS  /tmp/ccL4Pfha.s 			page 11
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 torque_angle.c
+     /tmp/ccL4Pfha.s:21     .text.adc_read_absolute:00000000 $t
+     /tmp/ccL4Pfha.s:26     .text.adc_read_absolute:00000000 adc_read_absolute
+     /tmp/ccL4Pfha.s:121    .text.adc_read_absolute:00000074 $d
+     /tmp/ccL4Pfha.s:465    .bss.s_zero_deg:00000000 s_zero_deg
+     /tmp/ccL4Pfha.s:130    .text.torque_angle_init:00000000 $t
+     /tmp/ccL4Pfha.s:136    .text.torque_angle_init:00000000 torque_angle_init
+     /tmp/ccL4Pfha.s:162    .text.torque_angle_init:00000014 $d
+     /tmp/ccL4Pfha.s:167    .text.torque_angle_zero:00000000 $t
+     /tmp/ccL4Pfha.s:173    .text.torque_angle_zero:00000000 torque_angle_zero
+     /tmp/ccL4Pfha.s:196    .text.torque_angle_zero:00000010 $d
+     /tmp/ccL4Pfha.s:201    .text.torque_angle_get_deg:00000000 $t
+     /tmp/ccL4Pfha.s:207    .text.torque_angle_get_deg:00000000 torque_angle_get_deg
+     /tmp/ccL4Pfha.s:276    .text.torque_angle_get_deg:00000050 $d
+     /tmp/ccL4Pfha.s:285    .text.torque_angle_set_target:00000000 $t
+     /tmp/ccL4Pfha.s:291    .text.torque_angle_set_target:00000000 torque_angle_set_target
+     /tmp/ccL4Pfha.s:330    .text.torque_angle_set_target:0000002c $d
+     /tmp/ccL4Pfha.s:459    .data.s_target_deg:00000000 s_target_deg
+     /tmp/ccL4Pfha.s:337    .text.torque_angle_get_target:00000000 $t
+     /tmp/ccL4Pfha.s:343    .text.torque_angle_get_target:00000000 torque_angle_get_target
+     /tmp/ccL4Pfha.s:358    .text.torque_angle_get_target:00000008 $d
+     /tmp/ccL4Pfha.s:363    .text.torque_angle_is_reached:00000000 $t
+     /tmp/ccL4Pfha.s:369    .text.torque_angle_is_reached:00000000 torque_angle_is_reached
+     /tmp/ccL4Pfha.s:398    .text.torque_angle_is_reached:0000001c $d
+     /tmp/ccL4Pfha.s:403    .text.torque_angle_get_raw:00000000 $t
+     /tmp/ccL4Pfha.s:409    .text.torque_angle_get_raw:00000000 torque_angle_get_raw
+     /tmp/ccL4Pfha.s:456    .data.s_target_deg:00000000 $d
+     /tmp/ccL4Pfha.s:462    .bss.s_zero_deg:00000000 $d
+
+UNDEFINED SYMBOLS
+adc_shared_read_channel
+adc_shared_init

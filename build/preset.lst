@@ -1,0 +1,83 @@
+ARM GAS  /tmp/ccrozyJ2.s 			page 1
+
+
+   1              		.cpu cortex-m4
+   2              		.arch armv7e-m
+   3              		.fpu fpv4-sp-d16
+   4              		.eabi_attribute 27, 1
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 1
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"preset.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.file 1 "Core/Src/preset.c"
+  20              		.global	g_presets
+  21              		.section	.rodata.str1.4,"aMS",%progbits,1
+  22              		.align	2
+  23              	.LC0:
+  24 0000 33303000 		.ascii	"300\000"
+  25              		.align	2
+  26              	.LC1:
+  27 0004 4E6F7A7A 		.ascii	"Nozzle\000"
+  27      6C6500
+  28 000b 00       		.align	2
+  29              	.LC2:
+  30 000c 536F6C65 		.ascii	"Solenoid\000"
+  30      6E6F6964 
+  30      00
+  31 0015 000000   		.align	2
+  32              	.LC3:
+  33 0018 34303000 		.ascii	"400\000"
+  34              		.align	2
+  35              	.LC4:
+  36 001c 53686166 		.ascii	"ShaftNut\000"
+  36      744E7574 
+  36      00
+  37              		.section	.rodata.g_presets,"a"
+  38              		.align	2
+  41              	g_presets:
+  42 0000 00000000 		.word	.LC0
+  43 0004 04000000 		.word	.LC1
+  44 0008 00000841 		.word	1091043328
+  45 000c 00001041 		.word	1091567616
+  46 0010 00000000 		.word	.LC0
+  47 0014 0C000000 		.word	.LC2
+  48 0018 0000E040 		.word	1088421888
+  49 001c 66660641 		.word	1090938470
+  50 0020 18000000 		.word	.LC3
+  51 0024 04000000 		.word	.LC1
+  52 0028 CDCC0441 		.word	1090833613
+  53 002c CDCC0C41 		.word	1091357901
+  54 0030 18000000 		.word	.LC3
+ARM GAS  /tmp/ccrozyJ2.s 			page 2
+
+
+  55 0034 0C000000 		.word	.LC2
+  56 0038 CDCC0441 		.word	1090833613
+  57 003c 33331B41 		.word	1092301619
+  58 0040 18000000 		.word	.LC3
+  59 0044 1C000000 		.word	.LC4
+  60 0048 00007041 		.word	1097859072
+  61 004c 00008041 		.word	1098907648
+  62              		.text
+  63              	.Letext0:
+  64              		.file 2 "Core/Inc/preset.h"
+ARM GAS  /tmp/ccrozyJ2.s 			page 3
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 preset.c
+     /tmp/ccrozyJ2.s:41     .rodata.g_presets:00000000 g_presets
+     /tmp/ccrozyJ2.s:22     .rodata.str1.4:00000000 $d
+     /tmp/ccrozyJ2.s:38     .rodata.g_presets:00000000 $d
+
+NO UNDEFINED SYMBOLS
