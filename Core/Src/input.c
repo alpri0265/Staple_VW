@@ -51,7 +51,7 @@ void input_init(void)
 
 void input_debounce_tick(void)
 {
-    // Encoder CLK polling at TIM7 rate (100µs) with 50-tick (5ms) debounce.
+    // Encoder CLK polling at the control timer rate (100us) with 50-tick (5ms) debounce.
     // Static locals are ISR-only: no concurrent access with main loop writers.
     static bool     clk_prev = true;   // pull-up idle = HIGH
     static uint16_t deb_ctr  = 0;      // countdown; 0 = ready to accept next edge
@@ -63,12 +63,12 @@ void input_debounce_tick(void)
         // KY-040: CLK falls first (DT still HIGH) → CW; DT already LOW → CCW
         if (dt) s_enc_delta++;
         else    s_enc_delta--;
-        deb_ctr = (uint16_t)(5000U / TIM7_TICK_US);  // 5ms debounce window
+        deb_ctr = (uint16_t)(5000U / CONTROL_TIM_TICK_US);  // 5ms debounce window
     }
     clk_prev = clk_now;
 
     s_debounce_subtick++;
-    if (s_debounce_subtick < (1000U / TIM7_TICK_US)) {
+    if (s_debounce_subtick < (1000U / CONTROL_TIM_TICK_US)) {
         return;
     }
     s_debounce_subtick = 0;
@@ -87,7 +87,7 @@ void input_debounce_tick(void)
     }
 }
 
-// Викликається з EXTI3 ISR на falling edge ENC_CLK
+// Викликається з EXTI ISR на falling edge ENC_CLK
 void input_enc_isr(void)
 {
     // KY-040: якщо DT=HIGH при CLK=FALLING → за годинниковою стрілкою (+1)

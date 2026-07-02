@@ -14,16 +14,16 @@
 // Кроків на 1 мм = (200 * 8 * 10) / 4 = 4000
 #define STEPS_PER_MM        4000.0f
 
-/* ===== Таймінг TIM7 / STEP =====
- * TIM7 працює з тікoм 100 us.
+/* ===== Таймінг control timer / STEP =====
+ * TIM3 працює з тікoм 100 us на Black Pill F411.
  * STEP формується коротким імпульсом тривалістю STEP_PULSE_TICKS тікiв.
  */
-#define TIM7_TICK_US        100U
+#define CONTROL_TIM_TICK_US 100U
 #define STEP_PULSE_TICKS    1U      // 100 us HIGH, чого достатньо для DM556
 
 /* ===== Швидкості (кроків/с) =====
- * При TIM7 = 100 us швидкість відповідає заданій набагато точніше.
- * Теоретичний максимум генератора STEP при TIM7=100 us і STEP_PULSE_TICKS=1:
+ * При control timer = 100 us швидкість відповідає заданій набагато точніше.
+ * Теоретичний максимум генератора STEP при 100 us і STEP_PULSE_TICKS=1:
  * min_period = 2 ticks => 5000 steps/s.
  *   SPEED_FAST:     5000 steps/s → 1.25 mm/s ≈ 75 mm/min
  *   SPEED_PRESS:     400 steps/s → 0.10 mm/s ≈ 6  mm/min

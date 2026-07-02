@@ -57,12 +57,12 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define ENABLE_Pin GPIO_PIN_2
-#define ENABLE_GPIO_Port GPIOE
+#define ENABLE_Pin GPIO_PIN_12
+#define ENABLE_GPIO_Port GPIOB
 #define HX_DAT_Pin GPIO_PIN_0
-#define HX_DAT_GPIO_Port GPIOC
-#define HX_CLK_Pin GPIO_PIN_1
-#define HX_CLK_GPIO_Port GPIOC
+#define HX_DAT_GPIO_Port GPIOB
+#define HX_CLK_Pin GPIO_PIN_7
+#define HX_CLK_GPIO_Port GPIOA
 #define STOP_BTN_Pin GPIO_PIN_0
 #define STOP_BTN_GPIO_Port GPIOA
 #define STOP_BTN_EXTI_IRQn EXTI0_IRQn
@@ -72,35 +72,34 @@ void Error_Handler(void);
 #define ENC_DT_GPIO_Port GPIOB
 #define ENC_SW_Pin GPIO_PIN_2
 #define ENC_SW_GPIO_Port GPIOB
-#define LIMIT_TOP_Pin GPIO_PIN_0
-#define LIMIT_TOP_GPIO_Port GPIOD
-#define LIMIT_BOT_Pin GPIO_PIN_1
-#define LIMIT_BOT_GPIO_Port GPIOD
-#define JOY_UP_Pin GPIO_PIN_2
-#define JOY_UP_GPIO_Port GPIOD
-#define JOY_DOWN_Pin GPIO_PIN_3
-#define JOY_DOWN_GPIO_Port GPIOD
-#define ZERO_BTN_Pin GPIO_PIN_4
-#define ZERO_BTN_GPIO_Port GPIOD
-#define ENC_CLK_Pin GPIO_PIN_3
+#define LIMIT_TOP_Pin GPIO_PIN_15
+#define LIMIT_TOP_GPIO_Port GPIOB
+#define LIMIT_BOT_Pin GPIO_PIN_8
+#define LIMIT_BOT_GPIO_Port GPIOA
+#define JOY_UP_Pin GPIO_PIN_9
+#define JOY_UP_GPIO_Port GPIOA
+#define JOY_DOWN_Pin GPIO_PIN_10
+#define JOY_DOWN_GPIO_Port GPIOA
+#define ZERO_BTN_Pin GPIO_PIN_15
+#define ZERO_BTN_GPIO_Port GPIOA
+#define ENC_CLK_Pin GPIO_PIN_10
 #define ENC_CLK_GPIO_Port GPIOB
-#define ENC_CLK_EXTI_IRQn EXTI3_IRQn
-#define STEP_Pin GPIO_PIN_0
-#define STEP_GPIO_Port GPIOE
-#define DIR_Pin GPIO_PIN_1
-#define DIR_GPIO_Port GPIOE
+#define ENC_CLK_EXTI_IRQn EXTI15_10_IRQn
+#define STEP_Pin GPIO_PIN_13
+#define STEP_GPIO_Port GPIOB
+#define DIR_Pin GPIO_PIN_14
+#define DIR_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
-// PB3 = JTDO/SWO debug pin — конфлікт з налагоджувачем, CLK завжди HIGH.
-// Encoder CLK фізично підключений до PC4.
-#undef  ENC_CLK_Pin
-#undef  ENC_CLK_GPIO_Port
-#undef  ENC_CLK_EXTI_IRQn
-#define ENC_CLK_Pin         GPIO_PIN_4
-#define ENC_CLK_GPIO_Port   GPIOC
-#define ENC_CLK_EXTI_IRQn   EXTI4_IRQn
 #define POT_Pin             GPIO_PIN_2
 #define POT_GPIO_Port       GPIOA
+/*
+ * Тимчасова карта пінів для переходу на STM32F411CEU6 Black Pill:
+ * PB0=HX_DAT, PA7=HX_CLK,
+ * PB1=ENC_DT, PB2=ENC_SW, PB10=ENC_CLK,
+ * PB12=ENABLE, PB13=STEP, PB14=DIR,
+ * PB15=LIMIT_TOP, PA8=LIMIT_BOT, PA9=JOY_UP, PA10=JOY_DOWN, PA15=ZERO_BTN.
+ */
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

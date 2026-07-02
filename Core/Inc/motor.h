@@ -15,7 +15,7 @@ typedef enum {
 
 void motor_init(void);
 void motor_update(void);           // викликати з main loop
-void motor_tim_tick(void);         // викликати з TIM7 IRQ — генерує STEP
+void motor_tim_tick(void);         // викликати з control timer IRQ — генерує STEP
 
 void motor_move_up(uint16_t speed);
 void motor_move_down(uint16_t speed);

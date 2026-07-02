@@ -44,7 +44,7 @@ static void motor_limit_stop_isr(void)
 
 static uint16_t ms_to_ticks(uint16_t ms)
 {
-    uint32_t ticks = ((uint32_t)ms * 1000U + (TIM7_TICK_US - 1U)) / TIM7_TICK_US;
+    uint32_t ticks = ((uint32_t)ms * 1000U + (CONTROL_TIM_TICK_US - 1U)) / CONTROL_TIM_TICK_US;
     return (ticks == 0U) ? 1U : (uint16_t)ticks;
 }
 
@@ -52,7 +52,7 @@ static uint16_t ms_to_ticks(uint16_t ms)
 static uint16_t speed_to_period(uint16_t speed_steps_per_sec)
 {
     if (speed_steps_per_sec == 0) return 0;
-    uint32_t ticks_per_sec = 1000000U / TIM7_TICK_US;
+    uint32_t ticks_per_sec = 1000000U / CONTROL_TIM_TICK_US;
     uint32_t p = ticks_per_sec / speed_steps_per_sec;
     uint32_t min_period = STEP_PULSE_TICKS + 1U;
     if (p < min_period) p = min_period;
@@ -268,7 +268,7 @@ void motor_emergency_stop(void)
     s_burst_steps = 0;
 }
 
-// Викликати з TIM7 IRQ (кожен TIM7_TICK_US)
+// Викликати з control timer IRQ (кожен CONTROL_TIM_TICK_US)
 void motor_tim_tick(void)
 {
     if (s_pulse_timer > 0) {

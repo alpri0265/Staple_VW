@@ -6,8 +6,8 @@
 
 void   input_init(void);
 void   input_update(void);           // викликати з main loop
-void   input_debounce_tick(void);    // викликати з TIM7 IRQ (1ms)
-void   input_enc_isr(void);          // викликати з EXTI3 ISR (ENC_CLK falling)
+void   input_debounce_tick(void);    // викликати з control timer IRQ
+void   input_enc_isr(void);          // викликати з EXTI ISR (ENC_CLK falling)
 
 bool   input_joy_up(void);           // джойстик вгору (з антидребезгом)
 bool   input_joy_down(void);         // джойстик вниз

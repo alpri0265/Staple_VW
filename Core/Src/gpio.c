@@ -45,15 +45,12 @@ void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, ENABLE_Pin|STEP_Pin|DIR_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, ENABLE_Pin|STEP_Pin|DIR_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(HX_CLK_GPIO_Port, HX_CLK_Pin, GPIO_PIN_RESET);
@@ -63,7 +60,7 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : HX_DAT_Pin */
   GPIO_InitStruct.Pin = HX_DAT_Pin;
@@ -91,10 +88,13 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LIMIT_TOP_Pin LIMIT_BOT_Pin JOY_UP_Pin JOY_DOWN_Pin */
-  GPIO_InitStruct.Pin = LIMIT_TOP_Pin|LIMIT_BOT_Pin|JOY_UP_Pin|JOY_DOWN_Pin;
+  GPIO_InitStruct.Pin = LIMIT_TOP_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = LIMIT_BOT_Pin|JOY_UP_Pin|JOY_DOWN_Pin;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ENC_CLK_Pin */
   GPIO_InitStruct.Pin = ENC_CLK_Pin;
@@ -106,8 +106,8 @@ void MX_GPIO_Init(void)
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 1, 0);
-  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
@@ -117,7 +117,7 @@ void MX_GPIO_ZERO_BTN_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
   GPIO_InitStruct.Pin  = ZERO_BTN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
