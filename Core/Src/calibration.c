@@ -3,6 +3,7 @@
 #include "display.h"
 #include "config.h"
 #include "torque_angle.h"
+#include "preset.h"
 #include "main.h"
 #include <stdio.h>
 #include <string.h>
@@ -20,23 +21,39 @@ typedef struct {
     float   target_force;
     uint8_t magic;
     float   angle_target;
+    float   preset_targets[PRESET_COUNT];
+    float   preset_angles[PRESET_COUNT];
 } FlashData_t;
 #pragma pack()
 
-bool flash_load(float *scale, int32_t *offset, float *target, float *angle_target)
+bool flash_load(float *scale, int32_t *offset, float *target, float *angle_target,
+                float *preset_targets, float *preset_angles, uint8_t preset_count)
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
-    if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
+    if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD && p->magic != 0xAE && p->magic != 0xAF) return false;
     if (scale)  *scale  = p->scale;
     if (offset) *offset = p->offset;
     if (target) *target = p->target_force;
     if (angle_target) {
-        *angle_target = (p->magic == 0xAD) ? p->angle_target : ANGLE_DEFAULT_DEG;
+        *angle_target = (p->magic == 0xAD || p->magic == 0xAE || p->magic == 0xAF) ? p->angle_target : ANGLE_DEFAULT_DEG;
+    }
+    if (preset_targets && p->magic == 0xAF) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            preset_targets[i] = p->preset_targets[i];
+        }
+    }
+    if (preset_angles && (p->magic == 0xAE || p->magic == 0xAF)) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            preset_angles[i] = p->preset_angles[i];
+        }
     }
     return true;
 }
 
-bool flash_save(float scale, int32_t offset, float target, float angle_target)
+bool flash_save(float scale, int32_t offset, float target, float angle_target,
+                const float *preset_targets, const float *preset_angles, uint8_t preset_count)
 {
     HAL_FLASH_Unlock();
 
@@ -59,6 +76,20 @@ bool flash_save(float scale, int32_t offset, float target, float angle_target)
         .magic        = EEPROM_MAGIC_VALUE,
         .angle_target = angle_target
     };
+
+    if (preset_targets) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            data.preset_targets[i] = preset_targets[i];
+        }
+    }
+
+    if (preset_angles) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            data.preset_angles[i] = preset_angles[i];
+        }
+    }
 
     // Записуємо побайтово (HAL_FLASH_Program підтримує BYTE)
     const uint8_t *src  = (const uint8_t *)&data;
@@ -214,8 +245,13 @@ void calib_update(void)
         }
 
         case CALIB_STEP_SAVE: {
+            float preset_targets[PRESET_COUNT] = {0};
+            float preset_angles[PRESET_COUNT] = {0};
+            preset_export_targets(preset_targets, PRESET_COUNT);
+            preset_export_angles(preset_angles, PRESET_COUNT);
             if (flash_save(loadcell_get_scale(), loadcell_get_offset(),
-                           s_target_for_save, torque_angle_get_target())) {
+                           s_target_for_save, torque_angle_get_target(),
+                           preset_targets, preset_angles, PRESET_COUNT)) {
                 s_step = CALIB_STEP_VERIFY;
                 update_display();
             } else {

@@ -84,7 +84,7 @@
 #define EEPROM_TARGET_FORCE   0x08  // float, 4 байти — останнє задане зусилля
 #define EEPROM_MAGIC          0x0C  // uint8 = версія формату
 #define EEPROM_ANGLE_TARGET   0x10  // float, 4 байти — цільовий кут
-#define EEPROM_MAGIC_VALUE    0xAD
+#define EEPROM_MAGIC_VALUE    0xAF
 
 /* ===== HX711 налаштування ===== */
 #define HX711_GAIN_128      1       // Channel A, gain 128 (за замовчуванням)
@@ -98,5 +98,7 @@
 
 /* ===== Тонка підстройка (ENC hold mode) ===== */
 #define FINE_TIMEOUT_MS     300     // мс без тіків енкодера → зупин мотора
+
+#define BUZZER_BEEP_MS      200U
 
 #endif /* __CONFIG_H */

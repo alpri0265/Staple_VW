@@ -9,6 +9,8 @@ typedef enum {
     SCREEN_AUTO,
     SCREEN_MENU,
     SCREEN_PRESET,        // вибір пресету (тип НФ + операція)
+    SCREEN_PRESET_EDIT_LIST,
+    SCREEN_PRESET_EDIT,
     SCREEN_CALIBRATION,
     SCREEN_SETTINGS,
     SCREEN_ERROR
@@ -53,5 +55,7 @@ uint8_t display_menu_get_item(void);
 // Список пресетів (навігація енкодером)
 void    display_preset_scroll(int8_t delta);
 uint8_t display_preset_get_item(void);
+
+void display_preset_edit_set(uint8_t idx, float target_kN, float angle_deg, uint8_t field);
 
 #endif /* __DISPLAY_H */
