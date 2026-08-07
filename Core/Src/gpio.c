@@ -97,17 +97,19 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ENC_CLK_Pin */
+  // Підрахунок енкодера робиться опитуванням у input_debounce_tick() (TIM3, 100мкс),
+  // не через EXTI — як і на перевіреній Trae_Angle (там ENC_CLK сидів на PB3, що
+  // конфліктує з SWO-дебагом, тому EXTI на цьому піні свідомо вимкнули; тут пін інший,
+  // але апаратне переривання на кожен фронт CLK лишається зайвим накладним навантаженням
+  // на переривання й потенційним джерелом джиттеру для TIM3 STEP-генератора).
   GPIO_InitStruct.Pin = ENC_CLK_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(ENC_CLK_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 1, 0);
-  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 

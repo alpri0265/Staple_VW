@@ -40,7 +40,10 @@ void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 15;
+  // TIM3CLK = PCLK1(50MHz) * 2 = 100MHz (APB1 prescaler != 1 -> x2 за правилом STM32).
+  // (99+1)*(99+1) тіків/сек = 100e6 / 10000 = 100мкс тік — той самий CONTROL_TIM_TICK_US,
+  // що й раніше на 16МГц (Prescaler=15), просто перерахований під нову частоту ядра.
+  htim3.Init.Prescaler = 99;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 99;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;

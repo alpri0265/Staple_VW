@@ -63,3 +63,4 @@ bool adc_shared_read_channel(uint32_t channel, uint32_t sampling_time, uint16_t 
     (void)HAL_ADC_Stop(&s_hadc1);
     return true;
 }
+

@@ -48,6 +48,8 @@
 #define ANGLE_DEFAULT_DEG   90.0f   // типовий цільовий кут
 #define ANGLE_STEP_DEG      5.0f    // крок зміни у Settings
 #define ANGLE_MAX_DEG       360.0f  // абсолютний датчик — макс. 1 оберт
+#define ANGLE_FILTER_ALPHA  0.20f   // EMA-фільтр сирого кута (менше = плавніше, повільніше)
+#define ANGLE_REACHED_HYSTERESIS_DEG 1.5f  // запас для torque_angle_is_reached(), щоб не тремтіло біля порогу
 #define HEAVY_START_SPEED   80      // окремий профіль старту для важкої механіки
 #define HEAVY_RAMP_MS       20      // раз на N мс зменшуємо/збільшуємо period у heavy profile
 #define HEAVY_RAMP_STEP     1       // крок зміни period у heavy profile
