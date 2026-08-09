@@ -70,6 +70,8 @@ static float    s_manual_angle_target = ANGLE_DEFAULT_DEG;
 static uint8_t  s_preset_edit_idx = 0;
 static uint8_t  s_preset_edit_field = 0;
 static bool     s_preset_edit_joy_up_last = false;
+static float    s_settings_angle_step_deg = 10.0f;
+static bool     s_settings_step_joy_up_last = false;
 static bool     s_angle_beep_armed = false;
 static bool     s_angle_beep_fired = false;
 static float    s_angle_beep_target_deg = 0.0f;
@@ -641,7 +643,9 @@ int main(void)
           case 3: calib_start(s_target_kg); break;
           case 4:
             s_ignore_next_enc_release = true;
+            s_settings_step_joy_up_last = false;
             display_settings_set_angle(current_target_angle());
+            display_settings_set_step(s_settings_angle_step_deg);
             display_set_screen(SCREEN_SETTINGS);
             break;
           case 5:
@@ -745,8 +749,16 @@ int main(void)
 
     } else if (cur_screen == SCREEN_SETTINGS) {
 
+      bool settings_joy_up_edge = joy_up && !s_settings_step_joy_up_last;
+      s_settings_step_joy_up_last = joy_up;
+
+      if (settings_joy_up_edge) {
+        s_settings_angle_step_deg = (s_settings_angle_step_deg >= 10.0f) ? 1.0f : 10.0f;
+        display_settings_set_step(s_settings_angle_step_deg);
+      }
+
       if (enc_delta != 0) {
-        float new_angle = current_target_angle() + (float)enc_delta * ANGLE_STEP_DEG;
+        float new_angle = current_target_angle() + (float)enc_delta * s_settings_angle_step_deg;
         apply_target_angle(new_angle);
         display_settings_set_angle(current_target_angle());
       }

@@ -42,6 +42,7 @@ void          display_set_auto_metrics(float current_kN, float target_kN, float 
 void          display_show_error(const char *msg);
 void          display_set_calib_text(uint8_t line, const char *text);
 void          display_settings_set_angle(float deg);
+void          display_settings_set_step(float step_deg);
 
 // Активний пресет для головного екрану (-1 = немає)
 void display_set_active_preset(int8_t idx);

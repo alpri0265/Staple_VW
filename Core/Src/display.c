@@ -55,6 +55,7 @@ static char s_calib_lines[LCD_ROWS][LCD_COLS + 1];
 static char s_error_msg[LCD_COLS + 1];
 static uint8_t s_blink_tick = 0;
 static float   s_settings_angle = ANGLE_DEFAULT_DEG;
+static float   s_settings_step  = 10.0f;
 
 // ===== PCF8574 / LCD низькорівневі функції =====
 
@@ -329,8 +330,9 @@ static void build_screen_settings(void)
     make_line_padded(s_new_buf[0], "=== SETTINGS ===");
     snprintf(tmp, sizeof(tmp), "Angle target:%6.1f", (double)s_settings_angle);
     make_line_padded(s_new_buf[1], tmp);
-    make_line_padded(s_new_buf[2], "ENC=change BTN=save");
-    make_line_padded(s_new_buf[3], "");
+    snprintf(tmp, sizeof(tmp), "Step:%4.0f  UP=step", (double)s_settings_step);
+    make_line_padded(s_new_buf[2], tmp);
+    make_line_padded(s_new_buf[3], "ENC=change BTN=save");
 }
 
 static void build_screen_error(void)
@@ -468,6 +470,14 @@ void display_settings_set_angle(float deg)
 {
     if (s_settings_angle != deg) {
         s_settings_angle = deg;
+        if (s_screen == SCREEN_SETTINGS) s_dirty = true;
+    }
+}
+
+void display_settings_set_step(float step_deg)
+{
+    if (s_settings_step != step_deg) {
+        s_settings_step = step_deg;
         if (s_screen == SCREEN_SETTINGS) s_dirty = true;
     }
 }
