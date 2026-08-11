@@ -33,6 +33,7 @@
 #include "preset.h"
 #include "speedpot.h"
 #include "torque_angle.h"
+#include "buzzer.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,6 +66,15 @@ typedef enum {
 /* USER CODE BEGIN PV */
 static float    s_target_kg    = FORCE_DEFAULT_KG;
 static int8_t   s_preset_idx   = -1;     // активний пресет (-1 = не вибрано)
+static float    s_manual_angle_target = ANGLE_DEFAULT_DEG;
+static uint8_t  s_preset_edit_idx = 0;
+static uint8_t  s_preset_edit_field = 0;
+static bool     s_preset_edit_joy_up_last = false;
+static float    s_settings_angle_step_deg = 10.0f;
+static bool     s_settings_step_joy_up_last = false;
+static bool     s_angle_beep_armed = false;
+static bool     s_angle_beep_fired = false;
+static float    s_angle_beep_target_deg = 0.0f;
 static uint32_t s_display_tick = 0;
 static bool     s_fine_used    = false;  // ENC hold використовувався для руху мотора
 static uint32_t s_fine_tick    = 0;      // час останнього тіку енкодера у fine mode
@@ -137,7 +147,30 @@ static uint16_t manual_down_speed_from_pot(uint16_t pot_raw)
 static void clear_active_preset(void)
 {
   s_preset_idx = -1;
+  s_angle_beep_armed = false;
+  s_angle_beep_fired = false;
+  buzzer_stop();
+  torque_angle_set_target(s_manual_angle_target);
   display_set_active_preset(-1);
+}
+
+static float current_target_angle(void)
+{
+  if (s_preset_idx >= 0 && s_preset_idx < PRESET_COUNT) {
+    return preset_get_angle_deg((uint8_t)s_preset_idx);
+  }
+  return s_manual_angle_target;
+}
+
+static void apply_target_angle(float angle_deg)
+{
+  if (s_preset_idx >= 0 && s_preset_idx < PRESET_COUNT) {
+    preset_set_angle_deg((uint8_t)s_preset_idx, angle_deg);
+    torque_angle_set_target(preset_get_angle_deg((uint8_t)s_preset_idx));
+  } else {
+    s_manual_angle_target = angle_deg;
+    torque_angle_set_target(s_manual_angle_target);
+  }
 }
 
 static bool ui_back_requested(bool joy_down)
@@ -198,49 +231,75 @@ static uint16_t auto_select_burst_steps(float err_kg)
   return AUTO_BURST_SMALL_STEPS;
 }
 
+// Допуск навколо цілі: пів-ширина робочого діапазону активного пресета
+// (target — це вже середина force_min..force_max, preset_init()), тобто
+// "зупинка близько до target" фактично означає "будь-де в межах
+// force_min..force_max деталі" — набагато реалістичніший допуск за фіксовані
+// кілька кг, які раніше майже гарантовано зривались в "AUTO overshoot" від
+// звичайного кроку burst на такому масштабі зусиль. Без активного пресета —
+// фіксований запасний допуск AUTO_FORCE_TOLERANCE_KG.
+static float auto_tolerance_kg(void)
+{
+  if (s_preset_idx >= 0 && s_preset_idx < PRESET_COUNT) {
+    float half_range_kg = (g_presets[s_preset_idx].force_max_kN - g_presets[s_preset_idx].force_min_kN)
+                           * 0.5f * KN_TO_KG;
+    if (half_range_kg > 0.5f) return half_range_kg;
+  }
+  return AUTO_FORCE_TOLERANCE_KG;
+}
+
 static void auto_update(float force, DisplayMotionMode *motion_mode, uint16_t *motion_speed)
 {
   float err_kg = s_target_kg - force;
+  float tol_kg = auto_tolerance_kg();
 
   switch (s_auto_state) {
-    case AUTO_STATE_APPROACH:
-      *motion_mode = DISPLAY_MODE_APPROACH;
-      *motion_speed = SPEED_APPROACH;
-      s_auto_cmd_speed = SPEED_APPROACH;
-
-      if (err_kg <= AUTO_CRUISE_ENTRY_KG || force >= APPROACH_SOFT_KG) {
-        motor_stop();
-        s_auto_state = AUTO_STATE_SOFT;
+    case AUTO_STATE_APPROACH: {
+      // Швидкість рахується щоразу з ПОТОЧНОГО зусилля (як manual_up_speed_from_pot
+      // у ручному режимі), а не фіксується один раз при вході в стан. Одиничний
+      // шумовий викид force вище порогу більше не "заклинює" рух на повільній
+      // швидкості назавжди — щойно зусилля знову нижче порогу, швидкість
+      // одразу повертається до максимальної.
+      uint16_t speed;
+      if (force < APPROACH_SOFT_KG) {
+        speed = SPEED_APPROACH;
       } else {
-        motor_move_up(SPEED_APPROACH);
+        speed = SPEED_APPROACH_SOFT;
       }
-      break;
 
-    case AUTO_STATE_SOFT:
-      *motion_mode = DISPLAY_MODE_SOFT;
-      *motion_speed = SPEED_APPROACH_SOFT;
-      s_auto_cmd_speed = SPEED_APPROACH_SOFT;
+      *motion_mode = (force < APPROACH_SOFT_KG) ? DISPLAY_MODE_APPROACH : DISPLAY_MODE_SOFT;
+      *motion_speed = speed;
+      s_auto_cmd_speed = speed;
 
-      if (err_kg <= AUTO_CRUISE_ENTRY_KG || force >= APPROACH_CONTACT_KG) {
+      // Перехід у повільний режим пошуку цілі — одразу за першим перевищенням
+      // порогу контакту (без дебаунсу): система жорстка, тому будь-яка
+      // затримка переходу після реального контакту дає зайвий хід і
+      // проскакування цілі по зусиллю. Захист від одиничного шумового
+      // викиду force тепер не в дебаунсі, а в тому, що швидкість вище
+      // рахується щоразу з ПОТОЧНОГО force — сам перехід у SEEK критичний
+      // лише коли контакт справжній, а до того двигун просто йде повільніше
+      // одну ітерацію і одразу повертається на швидкий APPROACH.
+      if (force >= APPROACH_CONTACT_KG || err_kg <= AUTO_CRUISE_ENTRY_KG) {
         motor_stop();
         s_auto_state = AUTO_STATE_SEEK;
       } else {
-        motor_move_up(SPEED_APPROACH_SOFT);
+        motor_move_up(speed);
       }
       break;
+    }
 
     case AUTO_STATE_SEEK:
       *motion_mode = DISPLAY_MODE_ASEEK;
       *motion_speed = s_auto_cmd_speed;
 
-      if (force > (s_target_kg + AUTO_FORCE_TOLERANCE_KG)) {
+      if (force > (s_target_kg + tol_kg)) {
         motor_stop();
         s_auto_state = AUTO_STATE_ERROR;
         display_show_error("AUTO overshoot");
         break;
       }
 
-      if (absf_local(err_kg) <= AUTO_FORCE_TOLERANCE_KG) {
+      if (absf_local(err_kg) <= tol_kg) {
         motor_stop();
         s_auto_state = AUTO_STATE_HOLD;
         s_auto_deadline = HAL_GetTick() + AUTO_HOLD_MS;
@@ -284,10 +343,10 @@ static void auto_update(float force, DisplayMotionMode *motion_mode, uint16_t *m
       *motion_mode = DISPLAY_MODE_HOLD;
       *motion_speed = 0;
 
-      if (force > (s_target_kg + AUTO_FORCE_TOLERANCE_KG)) {
+      if (force > (s_target_kg + tol_kg)) {
         s_auto_state = AUTO_STATE_ERROR;
         display_show_error("AUTO overshoot");
-      } else if ((s_target_kg - force) > AUTO_FORCE_TOLERANCE_KG) {
+      } else if ((s_target_kg - force) > tol_kg) {
         s_auto_state = AUTO_STATE_SEEK;
       } else if (HAL_GetTick() >= s_auto_deadline) {
         s_auto_state = AUTO_STATE_DONE;
@@ -299,7 +358,20 @@ static void auto_update(float force, DisplayMotionMode *motion_mode, uint16_t *m
       *motion_mode = DISPLAY_MODE_DONE;
       *motion_speed = 0;
       if (HAL_GetTick() >= s_auto_deadline) {
-        auto_reset();
+        // Після досягнення зусилля переходимо на головний екран — там уже
+        // видно живий кут ("Ang: поточний/ціль", ціль береться з пресета
+        // через current_target_angle()) і працює кнопка ZERO (обнулити
+        // датчик кута + зумер при досягненні цілі). Кут не потребує ручного
+        // виставлення тут — він уже заданий у пресеті.
+        // Безумовно "зливаємо" застарілу подію відпускання ENC (з моменту
+        // запуску AUTO через меню — за весь цикл AUTO вона нічим не
+        // споживається), інакше вона спрацює як відкриття меню одразу при
+        // вході на SCREEN_MAIN.
+        (void)input_enc_sw_released();
+        s_auto_state = AUTO_STATE_IDLE;
+        s_auto_deadline = 0;
+        s_auto_cmd_speed = 0;
+        display_set_screen(SCREEN_MAIN);
       }
       break;
 
@@ -367,10 +439,13 @@ int main(void)
   }
   MX_I2C1_Init();
   MX_GPIO_ZERO_BTN_Init();
+  MX_GPIO_BUZZER_Init();
 
+  preset_init();
   motor_init();
   speedpot_init();
   torque_angle_init();
+  buzzer_init();
   loadcell_init();
   input_init();
   calib_init();
@@ -381,22 +456,30 @@ int main(void)
     int32_t saved_offset;
     float   saved_target;
     float   saved_angle;
-    if (flash_load(&saved_scale, &saved_offset, &saved_target, &saved_angle)) {
+    float   saved_preset_targets[PRESET_COUNT];
+    float   saved_preset_angles[PRESET_COUNT];
+    preset_export_targets(saved_preset_targets, PRESET_COUNT);
+    preset_export_angles(saved_preset_angles, PRESET_COUNT);
+    if (flash_load(&saved_scale, &saved_offset, &saved_target, &saved_angle,
+                   saved_preset_targets, saved_preset_angles, PRESET_COUNT)) {
       loadcell_set_scale(saved_scale);
       loadcell_set_offset(saved_offset);
       if (saved_target > 0.0f && saved_target <= FORCE_MAX_KG) {
         s_target_kg = saved_target;
       }
       if (saved_angle >= 0.0f && saved_angle <= ANGLE_MAX_DEG) {
-        torque_angle_set_target(saved_angle);
+        s_manual_angle_target = saved_angle;
       }
+      preset_import_targets(saved_preset_targets, PRESET_COUNT);
+      preset_import_angles(saved_preset_angles, PRESET_COUNT);
     }
   }
 
+  torque_angle_set_target(current_target_angle());
   display_init();
   display_set_screen(SCREEN_MAIN);
   display_set_force(0.0f, s_target_kg / KN_TO_KG);
-  display_set_angle(0.0f, torque_angle_get_target(), false);
+  display_set_angle(0.0f, current_target_angle(), false);
 
   HAL_TIM_Base_Start_IT(&htim3);
   /* USER CODE END 2 */
@@ -411,6 +494,7 @@ int main(void)
     loadcell_update();
     input_update();
     motor_update();
+    buzzer_update();
 
     float force = loadcell_get_kg();
     float force_fast = loadcell_get_fast_kg();
@@ -426,6 +510,9 @@ int main(void)
     if (input_stop_pressed()) {
       input_stop_clear();
       auto_reset();
+      s_angle_beep_armed = false;
+      s_angle_beep_fired = false;
+      buzzer_stop();
       if (cur_screen == SCREEN_ERROR) {
         motor_clear_error();
         display_set_screen(SCREEN_MAIN);
@@ -445,27 +532,54 @@ int main(void)
     }
 
     // --- Кнопка ZERO кутового датчика ---
+    // 1-е натискання (з режиму спокою): обнулити кут + озброїти сигналізацію на цільовий кут.
+    // 2-е натискання (поки озброєно/сигналізує): лише вимкнути бузер, БЕЗ переобнулення кута.
     {
       bool zero_now = (HAL_GPIO_ReadPin(ZERO_BTN_GPIO_Port, ZERO_BTN_Pin) == GPIO_PIN_RESET);
       if (zero_now && !s_zero_btn_last) {
         if ((HAL_GetTick() - s_zero_btn_tick) >= DEBOUNCE_MS) {
-          torque_angle_zero();
+          if (s_angle_beep_armed || s_angle_beep_fired) {
+            s_angle_beep_armed = false;
+            s_angle_beep_fired = false;
+            buzzer_stop();
+          } else {
+            torque_angle_zero();
+            s_angle_beep_armed = true;
+            s_angle_beep_fired = false;
+            s_angle_beep_target_deg = current_target_angle();
+          }
         }
         s_zero_btn_tick = HAL_GetTick();
       }
       s_zero_btn_last = zero_now;
     }
 
+    if (s_angle_beep_armed && !s_angle_beep_fired) {
+      if (torque_angle_get_deg() >= s_angle_beep_target_deg) {
+        buzzer_on();
+        s_angle_beep_fired = true;
+      }
+    }
+
     // --- Логіка по екранах ---
     if (cur_screen == SCREEN_MAIN || cur_screen == SCREEN_AUTO) {
 
-      // Безпека: захист по зусиллю
-      if (motor_is_running()) {
+      // Безпека: захист по зусиллю (аварійна межа — для обох екранів).
+      // Стосується лише руху ВГОРУ (в навантаження) — рух ВНИЗ (відступ,
+      // розвантаження датчика) ніколи не має блокуватись через високе
+      // зусилля, інакше при перевищенні цілі оператор не зможе навіть
+      // відступити, щоб зняти навантаження (глухий кут).
+      if (motor_get_state() == MOTOR_MOVING_UP) {
         if (force >= s_target_kg * OVERLOAD_FACTOR) {
           motor_emergency_stop();
           auto_reset();
           display_show_error("OVERLOAD!");
-        } else if (force >= s_target_kg) {
+        } else if (cur_screen == SCREEN_MAIN && force >= s_target_kg) {
+          // "Досягли цілі — стоп" потрібне лише для ручного режиму: в AUTO
+          // цю логіку (з допуском) вже робить власний автомат стану
+          // (AUTO_STATE_SEEK/HOLD). Дубльована тут груба перевірка без
+          // допуску на шум датчика раніше могла зривати розгін мотора під
+          // час AUTO_STATE_APPROACH від одиничного шумового викиду force.
           motor_stop();
         }
       }
@@ -476,6 +590,8 @@ int main(void)
       } else if (cur_screen == SCREEN_AUTO && joy_up && !auto_is_visible()) {
         auto_start_cycle();
       } else if (auto_is_active() || s_auto_state == AUTO_STATE_DONE) {
+        // force_fast — так само, як на Trae_Angle (порівняно і підтверджено
+        // ідентичним). Проскок цілі тут не пов'язаний із джерелом сигналу.
         auto_update(force_fast, &motion_mode, &motion_speed);
       } else {
         // Джойстик керує двигуном (пріоритет над ENC fine mode)
@@ -519,15 +635,23 @@ int main(void)
           }
         }
 
-        // ENC відпущено: якщо fine mode не використовувався → меню
+        // ENC відпущено: якщо fine mode не використовувався → меню.
+        // Подію завжди СПОЖИВАЄМО (виклик input_enc_sw_released()), але
+        // діємо на неї лише на SCREEN_MAIN — інакше застаріла подія
+        // "відпускання ENC" (з моменту вибору AUTO в меню, що лишається
+        // непоглинутою протягом усього циклу AUTO) або "зависає" до виходу
+        // з AUTO і відкриває меню одразу після завершення, або взагалі не
+        // споживається і спрацьовує пізніше, коли повернетесь на SCREEN_MAIN.
         if (input_enc_sw_released()) {
-          if (s_fine_used) {
-            motor_stop();
-          } else {
-            // Споживаємо pressed_flag щоб він не спрацював у SCREEN_MENU
-            // одразу в наступній ітерації (stale flag від поточного натискання)
-            (void)input_enc_sw_pressed();
-            display_set_screen(SCREEN_MENU);
+          if (cur_screen == SCREEN_MAIN) {
+            if (s_fine_used) {
+              motor_stop();
+            } else {
+              // Споживаємо pressed_flag щоб він не спрацював у SCREEN_MENU
+              // одразу в наступній ітерації (stale flag від поточного натискання)
+              (void)input_enc_sw_pressed();
+              display_set_screen(SCREEN_MENU);
+            }
           }
           s_fine_used = false;
         }
@@ -570,13 +694,19 @@ int main(void)
             s_ignore_next_enc_release = true;
             display_set_screen(SCREEN_PRESET);
             break;
-          case 2: calib_start(s_target_kg); break;
-          case 3:
+          case 2:
             s_ignore_next_enc_release = true;
-            display_settings_set_angle(torque_angle_get_target());
+            display_set_screen(SCREEN_PRESET_EDIT_LIST);
+            break;
+          case 3: calib_start(s_target_kg); break;
+          case 4:
+            s_ignore_next_enc_release = true;
+            s_settings_step_joy_up_last = false;
+            display_settings_set_angle(current_target_angle());
+            display_settings_set_step(s_settings_angle_step_deg);
             display_set_screen(SCREEN_SETTINGS);
             break;
-          case 4:
+          case 5:
             s_ignore_next_enc_release = true;
             clear_active_preset();
             motor_reset_position();
@@ -596,15 +726,90 @@ int main(void)
           uint8_t idx = display_preset_get_item();
           s_target_kg  = preset_target_kg(idx);
           s_preset_idx = (int8_t)idx;
+          torque_angle_set_target(preset_get_angle_deg(idx));
           display_set_active_preset(s_preset_idx);
           s_ignore_next_enc_release = true;
           display_set_screen(SCREEN_MAIN);
         }
       }
 
+    } else if (cur_screen == SCREEN_PRESET_EDIT_LIST) {
+
+      if (ui_back_requested(joy_down)) {
+        display_set_screen(SCREEN_MENU);
+      } else {
+        if (enc_delta != 0) display_preset_scroll(enc_delta);
+        if (input_enc_sw_pressed()) {
+          uint8_t idx = display_preset_get_item();
+          s_preset_edit_idx = idx;
+          s_preset_edit_field = 0;
+          s_preset_edit_joy_up_last = false;
+          display_preset_edit_set(idx, preset_get_target_kN(idx), preset_get_angle_deg(idx), s_preset_edit_field);
+          s_ignore_next_enc_release = true;
+          display_set_screen(SCREEN_PRESET_EDIT);
+        }
+      }
+
+    } else if (cur_screen == SCREEN_PRESET_EDIT) {
+
+      if (ui_back_requested(joy_down)) {
+        display_set_screen(SCREEN_PRESET_EDIT_LIST);
+      } else {
+        bool joy_up_edge = joy_up && !s_preset_edit_joy_up_last;
+        s_preset_edit_joy_up_last = joy_up;
+
+        if (joy_up_edge) {
+          s_preset_edit_field = (s_preset_edit_field == 0) ? 1 : 0;
+        }
+
+        if (enc_delta != 0) {
+          if (s_preset_edit_field == 0) {
+            float new_target = preset_get_target_kN(s_preset_edit_idx) + (float)enc_delta * FORCE_STEP_KN;
+            preset_set_target_kN(s_preset_edit_idx, new_target);
+            if (s_preset_idx == (int8_t)s_preset_edit_idx) {
+              s_target_kg = preset_target_kg(s_preset_edit_idx);
+            }
+          } else {
+            float new_angle = preset_get_angle_deg(s_preset_edit_idx) + (float)enc_delta * ANGLE_STEP_DEG;
+            preset_set_angle_deg(s_preset_edit_idx, new_angle);
+            if (s_preset_idx == (int8_t)s_preset_edit_idx) {
+              torque_angle_set_target(preset_get_angle_deg(s_preset_edit_idx));
+            }
+          }
+        }
+
+        display_preset_edit_set(s_preset_edit_idx,
+                               preset_get_target_kN(s_preset_edit_idx),
+                               preset_get_angle_deg(s_preset_edit_idx),
+                               s_preset_edit_field);
+
+        if (input_enc_sw_pressed()) {
+          float preset_targets[PRESET_COUNT] = {0};
+          float preset_angles[PRESET_COUNT] = {0};
+          preset_export_targets(preset_targets, PRESET_COUNT);
+          preset_export_angles(preset_angles, PRESET_COUNT);
+          flash_save(loadcell_get_scale(), loadcell_get_offset(),
+                     s_target_kg, s_manual_angle_target,
+                     preset_targets, preset_angles, PRESET_COUNT);
+          display_set_screen(SCREEN_PRESET_EDIT_LIST);
+        }
+      }
+
     } else if (cur_screen == SCREEN_CALIBRATION) {
 
       if (calib_is_active()) {
+        // Джойстик керує мотором для позиціювання гвинта під час калібровки
+        // (шкала ще не встановлена, тому швидкість беремо з потенціометра,
+        // без прив'язки до зусилля, як для DOWN на головному екрані)
+        uint16_t calib_speed = manual_down_speed_from_pot(pot_raw);
+        if (joy_up && !motor_is_limit_top()) {
+          motor_move_up(calib_speed);
+        } else if (joy_down && !motor_is_limit_bot()) {
+          motor_move_down(calib_speed);
+        } else if (!joy_up && !joy_down && motor_is_running()) {
+          motor_stop();
+        }
+
         calib_adjust(enc_delta);
         if (input_enc_sw_pressed()) calib_confirm();
         calib_update();
@@ -614,15 +819,28 @@ int main(void)
 
     } else if (cur_screen == SCREEN_SETTINGS) {
 
+      bool settings_joy_up_edge = joy_up && !s_settings_step_joy_up_last;
+      s_settings_step_joy_up_last = joy_up;
+
+      if (settings_joy_up_edge) {
+        s_settings_angle_step_deg = (s_settings_angle_step_deg >= 10.0f) ? 1.0f : 10.0f;
+        display_settings_set_step(s_settings_angle_step_deg);
+      }
+
       if (enc_delta != 0) {
-        float new_angle = torque_angle_get_target() + (float)enc_delta * ANGLE_STEP_DEG;
-        torque_angle_set_target(new_angle);
-        display_settings_set_angle(torque_angle_get_target());
+        float new_angle = current_target_angle() + (float)enc_delta * s_settings_angle_step_deg;
+        apply_target_angle(new_angle);
+        display_settings_set_angle(current_target_angle());
       }
 
       if (input_enc_sw_pressed()) {
+        float preset_targets[PRESET_COUNT] = {0};
+        float preset_angles[PRESET_COUNT] = {0};
+        preset_export_targets(preset_targets, PRESET_COUNT);
+        preset_export_angles(preset_angles, PRESET_COUNT);
         flash_save(loadcell_get_scale(), loadcell_get_offset(),
-                   s_target_kg, torque_angle_get_target());
+                   s_target_kg, s_manual_angle_target,
+                   preset_targets, preset_angles, PRESET_COUNT);
         display_set_screen(SCREEN_MENU);
       } else if (ui_back_requested(joy_down)) {
         display_set_screen(SCREEN_MAIN);  // уніфікований вихід на головний екран
@@ -651,26 +869,34 @@ void SystemClock_Config(void)
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
+  * HSE (зовнішній кварц 25MHz) через PLL -> 100MHz, штатна частота
+  * плати Black Pill F411CE (f_cpu=100MHz). VCO_in=25/25=1MHz (в межах
+  * дозволеного діапазону ST 1-2MHz), VCO_out=1*200=200MHz, SYSCLK=200/2=100MHz.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 25;
+  RCC_OscInitStruct.PLL.PLLN = 200;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
+  * APB1 max 50MHz -> DIV2 (50MHz), APB2 max 100MHz -> DIV1 (100MHz).
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -709,6 +935,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
     motor_tim_tick();
     input_debounce_tick();
+    buzzer_tim_tick();
   }
   /* USER CODE END Callback 1 */
 }

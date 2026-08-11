@@ -3,7 +3,9 @@
 #include "display.h"
 #include "config.h"
 #include "torque_angle.h"
+#include "preset.h"
 #include "main.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -20,23 +22,42 @@ typedef struct {
     float   target_force;
     uint8_t magic;
     float   angle_target;
+    float   preset_targets[PRESET_COUNT];
+    float   preset_angles[PRESET_COUNT];
 } FlashData_t;
 #pragma pack()
 
-bool flash_load(float *scale, int32_t *offset, float *target, float *angle_target)
+bool flash_load(float *scale, int32_t *offset, float *target, float *angle_target,
+                float *preset_targets, float *preset_angles, uint8_t preset_count)
 {
     const FlashData_t *p = (const FlashData_t *)FLASH_EEPROM_ADDR;
-    if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD) return false;
+    if (p->magic != 0xAB && p->magic != 0xAC && p->magic != 0xAD && p->magic != 0xAE && p->magic != 0xAF) return false;
+    if (!isfinite(p->scale) || fabsf(p->scale) <= 0.000001f) return false;
+    if (p->offset < (-8388608) || p->offset > 8388607) return false;
+    if (!isfinite(p->target_force)) return false;
     if (scale)  *scale  = p->scale;
     if (offset) *offset = p->offset;
     if (target) *target = p->target_force;
     if (angle_target) {
-        *angle_target = (p->magic == 0xAD) ? p->angle_target : ANGLE_DEFAULT_DEG;
+        *angle_target = (p->magic == 0xAD || p->magic == 0xAE || p->magic == 0xAF) ? p->angle_target : ANGLE_DEFAULT_DEG;
+    }
+    if (preset_targets && p->magic == 0xAF) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            preset_targets[i] = p->preset_targets[i];
+        }
+    }
+    if (preset_angles && (p->magic == 0xAE || p->magic == 0xAF)) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            preset_angles[i] = p->preset_angles[i];
+        }
     }
     return true;
 }
 
-bool flash_save(float scale, int32_t offset, float target, float angle_target)
+bool flash_save(float scale, int32_t offset, float target, float angle_target,
+                const float *preset_targets, const float *preset_angles, uint8_t preset_count)
 {
     HAL_FLASH_Unlock();
 
@@ -60,6 +81,20 @@ bool flash_save(float scale, int32_t offset, float target, float angle_target)
         .angle_target = angle_target
     };
 
+    if (preset_targets) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            data.preset_targets[i] = preset_targets[i];
+        }
+    }
+
+    if (preset_angles) {
+        uint8_t limit = (preset_count < PRESET_COUNT) ? preset_count : PRESET_COUNT;
+        for (uint8_t i = 0; i < limit; i++) {
+            data.preset_angles[i] = preset_angles[i];
+        }
+    }
+
     // Записуємо побайтово (HAL_FLASH_Program підтримує BYTE)
     const uint8_t *src  = (const uint8_t *)&data;
     uint32_t       addr = FLASH_EEPROM_ADDR;
@@ -77,7 +112,7 @@ bool flash_save(float scale, int32_t offset, float target, float angle_target)
 // ===== Калібровка =====
 
 static CalibStep s_step           = CALIB_STEP_IDLE;
-static float     s_known_kg       = 1.0f;             // маса еталону (вводить оператор)
+static float     s_known_kg       = CALIB_KNOWN_DEFAULT_KG; // маса еталону (вводить оператор)
 static int32_t   s_raw_tare       = 0;                // сирий відлік при нулі
 static int32_t   s_raw_load       = 0;                // сирий відлік під навантаженням
 static float     s_target_for_save = FORCE_DEFAULT_KG; // задане зусилля для збереження у Flash
@@ -136,13 +171,13 @@ static void update_display(void)
 void calib_init(void)
 {
     s_step     = CALIB_STEP_IDLE;
-    s_known_kg = 1.0f;
+    s_known_kg = CALIB_KNOWN_DEFAULT_KG;
 }
 
 void calib_start(float target_kg)
 {
     s_step           = CALIB_STEP_TARE;
-    s_known_kg       = 1.0f;
+    s_known_kg       = CALIB_KNOWN_DEFAULT_KG;
     s_target_for_save = target_kg;
     display_set_screen(SCREEN_CALIBRATION);
     update_display();
@@ -162,14 +197,23 @@ void calib_confirm(void)
 {
     switch (s_step) {
         case CALIB_STEP_TARE:
-            loadcell_tare();
-            s_raw_tare = loadcell_read_raw();
+            if (loadcell_capture_raw(&s_raw_tare, 24, 3000U)) {
+                loadcell_set_offset(s_raw_tare);
+            } else {
+                display_show_error("HX711 read failed");
+                s_step = CALIB_STEP_DONE;
+                break;
+            }
             s_step = CALIB_STEP_LOAD;
             update_display();
             break;
 
         case CALIB_STEP_LOAD:
-            s_raw_load = loadcell_read_raw();
+            if (!loadcell_capture_raw(&s_raw_load, 24, 3000U)) {
+                display_show_error("HX711 read failed");
+                s_step = CALIB_STEP_DONE;
+                break;
+            }
             s_step = CALIB_STEP_INPUT_MASS;
             update_display();
             break;
@@ -191,9 +235,9 @@ void calib_confirm(void)
 void calib_adjust(int8_t delta)
 {
     if (s_step == CALIB_STEP_INPUT_MASS) {
-        s_known_kg += (float)delta * 0.1f;
-        if (s_known_kg < 0.1f) s_known_kg = 0.1f;
-        if (s_known_kg > 50.0f) s_known_kg = 50.0f;
+        s_known_kg += (float)delta * CALIB_KNOWN_STEP_KG;
+        if (s_known_kg < CALIB_KNOWN_MIN_KG) s_known_kg = CALIB_KNOWN_MIN_KG;
+        if (s_known_kg > CALIB_KNOWN_MAX_KG) s_known_kg = CALIB_KNOWN_MAX_KG;
         update_display();
     }
 }
@@ -207,15 +251,23 @@ void calib_update(void)
                 float new_scale = (float)delta / s_known_kg;
                 loadcell_set_scale(new_scale);
                 loadcell_set_offset(s_raw_tare);
+                s_step = CALIB_STEP_SAVE;
+                update_display();
+            } else {
+                s_step = CALIB_STEP_DONE;
+                display_show_error("CALIB bad delta");
             }
-            s_step = CALIB_STEP_SAVE;
-            update_display();
             break;
         }
 
         case CALIB_STEP_SAVE: {
+            float preset_targets[PRESET_COUNT] = {0};
+            float preset_angles[PRESET_COUNT] = {0};
+            preset_export_targets(preset_targets, PRESET_COUNT);
+            preset_export_angles(preset_angles, PRESET_COUNT);
             if (flash_save(loadcell_get_scale(), loadcell_get_offset(),
-                           s_target_for_save, torque_angle_get_target())) {
+                           s_target_for_save, torque_angle_get_target(),
+                           preset_targets, preset_angles, PRESET_COUNT)) {
                 s_step = CALIB_STEP_VERIFY;
                 update_display();
             } else {

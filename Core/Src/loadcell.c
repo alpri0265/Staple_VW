@@ -2,7 +2,7 @@
 #include "main.h"
 #include "config.h"
 
-#define AVG_SAMPLES  8
+#define AVG_SAMPLES  16
 
 // ===== Стан модуля =====
 static float   s_scale        = 1.0f;
@@ -49,6 +49,11 @@ static int32_t hx711_read(void)
 {
     int32_t data = 0;
 
+    // Переривання (TIM3 кожні 100us) заборонені на час бітбангу: якщо ISR
+    // затримає clk_lo() посеред 24-бітної посилки, HX711 зсуває фазу і
+    // повертає сміттєве значення (стрибок на сотні тисяч відліків).
+    __disable_irq();
+
     for (int i = 0; i < 24; i++) {
         hx_clk_hi();
         hx_delay();
@@ -66,12 +71,66 @@ static int32_t hx711_read(void)
     hx_clk_lo();
     hx_delay();
 
+    __enable_irq();
+
     // Знакове розширення 24→32 біт
     if (data & 0x800000) {
         data |= (int32_t)0xFF000000;
     }
 
     return data;
+}
+
+#define CAPTURE_MAX_SAMPLES 32U
+
+bool loadcell_capture_raw(int32_t *out_raw, uint16_t samples, uint32_t timeout_ms)
+{
+    if (!out_raw || samples == 0U) return false;
+    if (samples > CAPTURE_MAX_SAMPLES) samples = CAPTURE_MAX_SAMPLES;
+
+    int32_t  buf[CAPTURE_MAX_SAMPLES];
+    uint16_t got      = 0;
+    uint32_t deadline = HAL_GetTick() + timeout_ms;
+
+    while (got < samples) {
+        if (hx_dat_lo()) {
+            buf[got] = hx711_read();
+            got++;
+            continue;
+        }
+        if ((int32_t)(HAL_GetTick() - deadline) >= 0) {
+            return false;
+        }
+    }
+
+    // Сортування вставками (got невелике, до CAPTURE_MAX_SAMPLES)
+    for (uint16_t i = 1; i < got; i++) {
+        int32_t  key = buf[i];
+        int32_t  j   = (int32_t)i - 1;
+        while (j >= 0 && buf[j] > key) {
+            buf[j + 1] = buf[j];
+            j--;
+        }
+        buf[j + 1] = key;
+    }
+
+    // Обрізане середнє: відкидаємо чверть найменших і чверть найбільших
+    // зразків — прибирає одиничні сміттєві викиди HX711, які інакше
+    // сильно зсувають результат при малій кількості зразків.
+    uint16_t trim  = got / 4U;
+    int64_t  sum   = 0;
+    uint16_t count = 0;
+    for (uint16_t i = trim; i < got - trim; i++) {
+        sum += buf[i];
+        count++;
+    }
+    if (count == 0U) {
+        sum   = buf[got / 2U];
+        count = 1U;
+    }
+
+    *out_raw = (int32_t)(sum / (int64_t)count);
+    return true;
 }
 
 // ===== Публічні функції =====
@@ -95,6 +154,43 @@ bool loadcell_is_ready(void)
     return hx_dat_lo();
 }
 
+// Обрізане середнє по всьому буферу ковзного середнього (той самий підхід,
+// що й у loadcell_capture_raw) — прибирає одиничні сміттєві викиди HX711,
+// що інакше проникають у "живий" показник Force на головному екрані.
+static int32_t compute_trimmed_avg(void)
+{
+    int32_t sorted[AVG_SAMPLES];
+    uint8_t count = s_avg_count;
+
+    for (uint8_t i = 0; i < count; i++) {
+        sorted[i] = s_avg_buf[i];
+    }
+
+    for (uint8_t i = 1; i < count; i++) {
+        int32_t key = sorted[i];
+        int32_t j   = (int32_t)i - 1;
+        while (j >= 0 && sorted[j] > key) {
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = key;
+    }
+
+    uint8_t trim = count / 4U;
+    int64_t sum  = 0;
+    uint8_t n    = 0;
+    for (uint8_t i = trim; i < count - trim; i++) {
+        sum += sorted[i];
+        n++;
+    }
+    if (n == 0U) {
+        sum = sorted[count / 2U];
+        n   = 1U;
+    }
+
+    return (int32_t)(sum / (int64_t)n);
+}
+
 void loadcell_update(void)
 {
     if (!hx_dat_lo()) {
@@ -116,12 +212,27 @@ void loadcell_update(void)
     s_avg_idx = (s_avg_idx + 1) % AVG_SAMPLES;
     if (s_avg_count < AVG_SAMPLES) s_avg_count++;
 
-    int32_t avg = s_avg_sum / (int32_t)s_avg_count;
+    int32_t avg = compute_trimmed_avg();
 
     if (s_scale != 0.0f) {
-        s_force_kg = (float)(avg - s_offset) / s_scale;
-
+        float force_kg     = (float)(avg - s_offset) / s_scale;
         float raw_force_kg = (float)(raw - s_offset) / s_scale;
+        if (LOADCELL_INVERT_SIGN) {
+            force_kg     = -force_kg;
+            raw_force_kg = -raw_force_kg;
+        }
+
+        // Захист від викидів: якщо порахована сила фізично неможлива
+        // (вдвічі більша за межу датчика), це сміттєве зчитування —
+        // ігноруємо його повністю замість показу стрибка на екрані.
+        float abs_force     = (force_kg < 0.0f) ? -force_kg : force_kg;
+        float abs_raw_force = (raw_force_kg < 0.0f) ? -raw_force_kg : raw_force_kg;
+        float glitch_limit  = FORCE_MAX_KG * 2.0f;
+        if (abs_force > glitch_limit || abs_raw_force > glitch_limit) {
+            return;
+        }
+
+        s_force_kg = force_kg;
         if (!s_fast_valid) {
             s_force_fast_kg = raw_force_kg;
             s_fast_valid = true;

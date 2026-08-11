@@ -31,6 +31,12 @@ static const MotorRampProfile s_heavy_profile = {
     .ramp_step   = HEAVY_RAMP_STEP
 };
 
+static const MotorRampProfile s_travel_profile = {
+    .start_speed = TRAVEL_START_SPEED,
+    .ramp_ms     = TRAVEL_RAMP_MS,
+    .ramp_step   = TRAVEL_RAMP_STEP
+};
+
 // ===== Приватні функції =====
 
 // Зупинка при спрацюванні концевика — ISR-safe, встановлює IDLE (рух у протилежний бік дозволений)
@@ -187,22 +193,26 @@ void motor_clear_error(void)
 
 void motor_move_up(uint16_t speed)
 {
-    motor_command(MOTOR_MOVING_UP, true, speed, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_command(MOTOR_MOVING_UP, true, speed, profile);
 }
 
 void motor_move_down(uint16_t speed)
 {
-    motor_command(MOTOR_MOVING_DOWN, false, speed, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_command(MOTOR_MOVING_DOWN, false, speed, profile);
 }
 
 void motor_burst_up(uint16_t speed, uint16_t steps)
 {
-    motor_start_burst(MOTOR_MOVING_UP, true, speed, steps, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_start_burst(MOTOR_MOVING_UP, true, speed, steps, profile);
 }
 
 void motor_burst_down(uint16_t speed, uint16_t steps)
 {
-    motor_start_burst(MOTOR_MOVING_DOWN, false, speed, steps, &s_heavy_profile);
+    const MotorRampProfile *profile = (speed >= SPEED_PROFILE_SWITCH) ? &s_travel_profile : &s_heavy_profile;
+    motor_start_burst(MOTOR_MOVING_DOWN, false, speed, steps, profile);
 }
 
 void motor_nudge_up(uint16_t speed)

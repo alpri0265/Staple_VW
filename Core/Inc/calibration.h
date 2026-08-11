@@ -24,7 +24,9 @@ bool      calib_is_active(void);
 CalibStep calib_get_step(void);
 
 // Flash EEPROM — загальний доступ для завантаження налаштувань при старті
-bool  flash_load(float *scale, int32_t *offset, float *target, float *angle_target);
-bool  flash_save(float scale, int32_t offset, float target, float angle_target);
+bool  flash_load(float *scale, int32_t *offset, float *target, float *angle_target,
+                 float *preset_targets, float *preset_angles, uint8_t preset_count);
+bool  flash_save(float scale, int32_t offset, float target, float angle_target,
+                 const float *preset_targets, const float *preset_angles, uint8_t preset_count);
 
 #endif /* __CALIBRATION_H */

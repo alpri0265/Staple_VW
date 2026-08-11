@@ -15,27 +15,23 @@
 #define STEPS_PER_MM        4000.0f
 
 /* ===== Таймінг control timer / STEP =====
- * TIM3 працює з тікoм 100 us на Black Pill F411.
+ * TIM3 працює з тікoм 16 us на Black Pill F411 (як на Trae_Angle).
  * STEP формується коротким імпульсом тривалістю STEP_PULSE_TICKS тікiв.
+ * HX711 захищений __disable_irq() навколо біт-бангу, тому частіші
+ * переривання тут більше не загрожують зчитуванню датчика.
  */
-#define CONTROL_TIM_TICK_US 100U
-#define STEP_PULSE_TICKS    1U      // 100 us HIGH, чого достатньо для DM556
+#define CONTROL_TIM_TICK_US 16U
+#define STEP_PULSE_TICKS    1U      // 16 us HIGH, чого достатньо для DM556
 
 /* ===== Швидкості (кроків/с) =====
- * При control timer = 100 us швидкість відповідає заданій набагато точніше.
- * Теоретичний максимум генератора STEP при 100 us і STEP_PULSE_TICKS=1:
- * min_period = 2 ticks => 5000 steps/s.
- *   SPEED_FAST:     5000 steps/s → 1.25 mm/s ≈ 75 mm/min
- *   SPEED_PRESS:     400 steps/s → 0.10 mm/s ≈ 6  mm/min
- *   SPEED_ENC:       200 steps/s → 0.05 mm/s ≈ 3  mm/min
- *   SPEED_APPROACH: 5000 steps/s → 1.25 mm/s ≈ 75 mm/min
- *   SPEED_APPROACH_SOFT: 1200 steps/s → 0.30 mm/s ≈ 18 mm/min
+ * Теоретичний максимум генератора STEP при 16 us і STEP_PULSE_TICKS=1:
+ * min_period = 2 ticks => 31250 steps/s — великий запас над реальними швидкостями нижче.
  */
-#define SPEED_FAST          5000    // вільний рух / retract, таймерний максимум генератора STEP
+#define SPEED_FAST          3500    // вільний рух / retract
 #define SPEED_PRESS         400     // робочий рух після контакту
 #define SPEED_ENC           200     // енкодер, тонке підналаштування
-#define SPEED_APPROACH      5000    // швидкий підхід до деталі до появи навантаження, таймерний максимум
-#define SPEED_APPROACH_SOFT 1200    // м'який підхід перед контактом
+#define SPEED_APPROACH      3500    // швидкий підхід до деталі до появи навантаження
+#define SPEED_APPROACH_SOFT 1800    // м'який підхід перед контактом (нижче за SPEED_APPROACH)
 #define APPROACH_SOFT_KG    5.0f    // після цього порогу скидаємо швидкість до soft approach
 #define APPROACH_CONTACT_KG 10.0f   // поріг контакту: після нього переходимо на SPEED_PRESS
 #define POT_ADC_MIN_ACTIVE  64U     // запас від країв АЦП, щоб крайні положення були стабільні
@@ -48,9 +44,15 @@
 #define ANGLE_DEFAULT_DEG   90.0f   // типовий цільовий кут
 #define ANGLE_STEP_DEG      5.0f    // крок зміни у Settings
 #define ANGLE_MAX_DEG       360.0f  // абсолютний датчик — макс. 1 оберт
-#define HEAVY_START_SPEED   80      // окремий профіль старту для важкої механіки
+#define ANGLE_FILTER_ALPHA  0.20f   // EMA-фільтр сирого кута (менше = плавніше, повільніше)
+#define ANGLE_REACHED_HYSTERESIS_DEG 1.5f  // запас для torque_angle_is_reached(), щоб не тремтіло біля порогу
+#define HEAVY_START_SPEED   80      // окремий профіль старту для важкої механіки (притискання під навантаженням)
 #define HEAVY_RAMP_MS       20      // раз на N мс зменшуємо/збільшуємо period у heavy profile
 #define HEAVY_RAMP_STEP     1       // крок зміни period у heavy profile
+#define TRAVEL_START_SPEED  1500    // профіль старту для вільного ходу (без навантаження) — одразу швидко
+#define TRAVEL_RAMP_MS      5       // раз на N мс зменшуємо/збільшуємо period у travel profile
+#define TRAVEL_RAMP_STEP    2       // крок зміни period у travel profile
+#define SPEED_PROFILE_SWITCH 1000   // швидкості >= цього значення використовують travel profile, менші — heavy
 #define ACCEL_STEPS         2000    // кроків/с² (не використовується напряму, залишено для документації)
 
 /* ===== Зусилля ===== */
@@ -70,9 +72,9 @@
 #define AUTO_CRUISE_ENTRY_KG     50.0f   // вище цієї похибки можна ще рухатись безперервно
 #define AUTO_BURST_LARGE_ERR_KG  20.0f   // велика похибка → великий burst
 #define AUTO_BURST_MED_ERR_KG    8.0f    // середня похибка → середній burst
-#define AUTO_BURST_LARGE_STEPS   50U
-#define AUTO_BURST_MED_STEPS     20U
-#define AUTO_BURST_SMALL_STEPS   5U
+#define AUTO_BURST_LARGE_STEPS   10U   // зменшено з 50: на масштабі 1000+ кг навіть старий "малий" burst давав завеликий стрибок сили
+#define AUTO_BURST_MED_STEPS     4U    // було 20
+#define AUTO_BURST_SMALL_STEPS   1U    // було 5 — фінальне підведення до цілі по 1 кроку
 #define AUTO_SETTLE_MS           400U    // пауза на стабілізацію після burst
 #define AUTO_HOLD_MS             700U    // коротка пауза підтвердження в допуску
 #define AUTO_DONE_MS             1500U   // показати DONE перед поверненням в IDLE
@@ -84,11 +86,12 @@
 #define EEPROM_TARGET_FORCE   0x08  // float, 4 байти — останнє задане зусилля
 #define EEPROM_MAGIC          0x0C  // uint8 = версія формату
 #define EEPROM_ANGLE_TARGET   0x10  // float, 4 байти — цільовий кут
-#define EEPROM_MAGIC_VALUE    0xAD
+#define EEPROM_MAGIC_VALUE    0xAF
 
 /* ===== HX711 налаштування ===== */
 #define HX711_GAIN_128      1       // Channel A, gain 128 (за замовчуванням)
 #define HX711_TIMEOUT_MS    500     // таймаут очікування готовності
+#define LOADCELL_INVERT_SIGN 0U     // інверсія знаку (напрямок навантаження датчика) — вимкнено: калібрування вже самокоригує знак
 
 /* ===== LCD2004 I2C адреса ===== */
 #define LCD_I2C_ADDR        (0x27 << 1)  // спробувати 0x3F << 1 якщо не працює
@@ -98,5 +101,13 @@
 
 /* ===== Тонка підстройка (ENC hold mode) ===== */
 #define FINE_TIMEOUT_MS     300     // мс без тіків енкодера → зупин мотора
+
+#define BUZZER_BEEP_MS      200U
+
+/* ===== Калібровка HX711 ===== */
+#define CALIB_KNOWN_MIN_KG      100.0f
+#define CALIB_KNOWN_MAX_KG      1000.0f
+#define CALIB_KNOWN_DEFAULT_KG  100.0f
+#define CALIB_KNOWN_STEP_KG     1.0f
 
 #endif /* __CONFIG_H */

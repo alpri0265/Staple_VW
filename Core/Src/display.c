@@ -3,6 +3,7 @@
 #include "i2c.h"
 #include "config.h"
 #include "preset.h"
+#include "motor.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -39,6 +40,10 @@ static bool           s_dirty         = true;
 static uint8_t        s_menu_item     = 0;
 static uint8_t        s_preset_item   = 0;  // поточна позиція у списку пресетів
 static int8_t         s_active_preset = -1; // обраний пресет (-1 = немає)
+static uint8_t        s_preset_edit_idx   = 0;
+static float          s_preset_edit_target = FORCE_DEFAULT_KN;
+static float          s_preset_edit_angle  = ANGLE_DEFAULT_DEG;
+static uint8_t        s_preset_edit_field  = 0;
 
 // Буфер кожного рядка для порівняння (щоб не надсилати незмінені)
 static char s_lcd_buf[LCD_ROWS][LCD_COLS + 1];
@@ -51,6 +56,7 @@ static char s_calib_lines[LCD_ROWS][LCD_COLS + 1];
 static char s_error_msg[LCD_COLS + 1];
 static uint8_t s_blink_tick = 0;
 static float   s_settings_angle = ANGLE_DEFAULT_DEG;
+static float   s_settings_step  = 10.0f;
 
 // ===== PCF8574 / LCD низькорівневі функції =====
 
@@ -160,7 +166,7 @@ static void build_screen_main(void)
     if (s_angle_reached && (s_blink_tick & 0x03U)) {
         make_line_padded(s_new_buf[2], "Angle: [  DONE!  ]  ");
     } else {
-        snprintf(tmp, sizeof(tmp), "Angle:%6.1f /%6.1f",
+        snprintf(tmp, sizeof(tmp), "Ang:%6.1f /%6.1f",
                  (double)s_angle_current, (double)s_angle_target);
         make_line_padded(s_new_buf[2], tmp);
     }
@@ -178,7 +184,14 @@ static void build_screen_main(void)
         default:                    mode = "IDLE"; break;
     }
 
-    snprintf(tmp, sizeof(tmp), "%-5s%4u  STOP", mode, (unsigned)s_motion_speed);
+    // ДІАГНОСТИКА: буква реального стану мотора (не назви режиму) —
+    // U = motor_move_up(), D = motor_move_down(), - = стоїть.
+    char dir = '-';
+    MotorState mst = motor_get_state();
+    if (mst == MOTOR_MOVING_UP) dir = 'U';
+    else if (mst == MOTOR_MOVING_DOWN) dir = 'D';
+
+    snprintf(tmp, sizeof(tmp), "%-5s%4u %c STOP", mode, (unsigned)s_motion_speed, dir);
     make_line_padded(s_new_buf[3], tmp);
 }
 
@@ -217,13 +230,14 @@ static void build_screen_auto(void)
     make_line_padded(s_new_buf[3], tmp);
 }
 
-#define MENU_ITEMS 5
+#define MENU_ITEMS 6
 static const char *MENU_LABELS[MENU_ITEMS] = {
     "1.Auto force",
     "2.Presets",
-    "3.Calibration",
-    "4.Settings",
-    "5.Manual + zero"
+    "3.Edit presets",
+    "4.Calibration",
+    "5.Settings",
+    "6.Manual + zero"
 };
 
 static void build_screen_menu(void)
@@ -246,7 +260,11 @@ static void build_screen_menu(void)
 
 static void build_screen_preset(void)
 {
-    make_line_padded(s_new_buf[0], "=== PRESET ===");
+    if (s_screen == SCREEN_PRESET_EDIT_LIST) {
+        make_line_padded(s_new_buf[0], "== EDIT PRESET ==");
+    } else {
+        make_line_padded(s_new_buf[0], "=== PRESET ===");
+    }
 
     // Вікно прокрутки: показуємо 3 пункти, обраний завжди видимий
     uint8_t start = 0;
@@ -264,15 +282,47 @@ static void build_screen_preset(void)
             continue;
         }
         const Preset_t *p = &g_presets[idx];
-        char rng[8];
-        format_range_kN(rng, p->force_min_kN, p->force_max_kN);
         char tmp[LCD_COLS + 1];
-        // ">[300] [Nozzle  ][8.5-9.0]"  = 1+3+1+8+7 = 20 chars
-        snprintf(tmp, sizeof(tmp), "%c%-3s %-8s%s",
-                 (idx == s_preset_item) ? '>' : ' ',
-                 p->inj_name, p->op_name, rng);
+        if (s_screen == SCREEN_PRESET_EDIT_LIST) {
+            snprintf(tmp, sizeof(tmp), "%c%-3s %-6.6s%4.1f/%3.0f%c",
+                     (idx == s_preset_item) ? '>' : ' ',
+                     p->inj_name, p->op_name,
+                     (double)preset_get_target_kN(idx),
+                     (double)preset_get_angle_deg(idx),
+                     0xDF);
+        } else {
+            char rng[8];
+            format_range_kN(rng, p->force_min_kN, p->force_max_kN);
+            snprintf(tmp, sizeof(tmp), "%c%-3s %-8s%s",
+                     (idx == s_preset_item) ? '>' : ' ',
+                     p->inj_name, p->op_name, rng);
+        }
         make_line_padded(s_new_buf[i + 1], tmp);
     }
+}
+
+static void build_screen_preset_edit(void)
+{
+    char tmp[LCD_COLS + 1];
+    if (s_preset_edit_idx < PRESET_COUNT) {
+        const Preset_t *p = &g_presets[s_preset_edit_idx];
+        snprintf(tmp, sizeof(tmp), "%-3s %-8s EDIT", p->inj_name, p->op_name);
+    } else {
+        snprintf(tmp, sizeof(tmp), "PRESET %u EDIT", (unsigned)s_preset_edit_idx);
+    }
+    make_line_padded(s_new_buf[0], tmp);
+
+    snprintf(tmp, sizeof(tmp), "%cForce:%6.2f kN",
+             (s_preset_edit_field == 0) ? '>' : ' ',
+             (double)s_preset_edit_target);
+    make_line_padded(s_new_buf[1], tmp);
+
+    snprintf(tmp, sizeof(tmp), "%cAngle:%6.1f%c",
+             (s_preset_edit_field == 1) ? '>' : ' ',
+             (double)s_preset_edit_angle, 0xDF);
+    make_line_padded(s_new_buf[2], tmp);
+
+    make_line_padded(s_new_buf[3], "UP=field  BTN=save");
 }
 
 static void build_screen_calib(void)
@@ -288,8 +338,9 @@ static void build_screen_settings(void)
     make_line_padded(s_new_buf[0], "=== SETTINGS ===");
     snprintf(tmp, sizeof(tmp), "Angle target:%6.1f", (double)s_settings_angle);
     make_line_padded(s_new_buf[1], tmp);
-    make_line_padded(s_new_buf[2], "ENC=change  BTN=OK");
-    make_line_padded(s_new_buf[3], "");
+    snprintf(tmp, sizeof(tmp), "Step:%4.0f  UP=step", (double)s_settings_step);
+    make_line_padded(s_new_buf[2], tmp);
+    make_line_padded(s_new_buf[3], "ENC=change BTN=save");
 }
 
 static void build_screen_error(void)
@@ -335,6 +386,8 @@ void display_update(void)
         case SCREEN_AUTO:         build_screen_auto();     break;
         case SCREEN_MENU:         build_screen_menu();     break;
         case SCREEN_PRESET:       build_screen_preset();   break;
+        case SCREEN_PRESET_EDIT_LIST: build_screen_preset(); break;
+        case SCREEN_PRESET_EDIT:  build_screen_preset_edit(); break;
         case SCREEN_CALIBRATION:  build_screen_calib();    break;
         case SCREEN_SETTINGS:     build_screen_settings(); break;
         case SCREEN_ERROR:        build_screen_error();    break;
@@ -429,6 +482,14 @@ void display_settings_set_angle(float deg)
     }
 }
 
+void display_settings_set_step(float step_deg)
+{
+    if (s_settings_step != step_deg) {
+        s_settings_step = step_deg;
+        if (s_screen == SCREEN_SETTINGS) s_dirty = true;
+    }
+}
+
 void display_set_active_preset(int8_t idx)
 {
     s_active_preset = idx;
@@ -471,10 +532,19 @@ void display_preset_scroll(int8_t delta)
     } else if (delta < 0 && s_preset_item > 0) {
         s_preset_item--;
     }
-    if (s_screen == SCREEN_PRESET) s_dirty = true;
+    if (s_screen == SCREEN_PRESET || s_screen == SCREEN_PRESET_EDIT_LIST) s_dirty = true;
 }
 
 uint8_t display_preset_get_item(void)
 {
     return s_preset_item;
+}
+
+void display_preset_edit_set(uint8_t idx, float target_kN, float angle_deg, uint8_t field)
+{
+    s_preset_edit_idx = idx;
+    s_preset_edit_target = target_kN;
+    s_preset_edit_angle  = angle_deg;
+    s_preset_edit_field  = field;
+    if (s_screen == SCREEN_PRESET_EDIT) s_dirty = true;
 }

@@ -93,6 +93,11 @@ void Error_Handler(void);
 /* USER CODE BEGIN Private defines */
 #define POT_Pin             GPIO_PIN_2
 #define POT_GPIO_Port       GPIOA
+
+#define BUZZER_Pin          GPIO_PIN_13
+#define BUZZER_GPIO_Port    GPIOC
+#define BUZZER_ACTIVE_STATE GPIO_PIN_SET
+#define BUZZER_IDLE_STATE   GPIO_PIN_RESET
 /*
  * Тимчасова карта пінів для переходу на STM32F411CEU6 Black Pill:
  * PB0=HX_DAT, PA7=HX_CLK,
