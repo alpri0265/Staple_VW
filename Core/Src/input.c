@@ -12,6 +12,8 @@ typedef struct {
 static DebounceBtn_t s_joy_up;
 static DebounceBtn_t s_joy_down;
 static DebounceBtn_t s_enc_sw;
+static DebounceBtn_t s_stop_release;   // .state==true, коли STOP_BTN стабільно ВІДПУЩЕНА (для re-arm EXTI0)
+static DebounceBtn_t s_stop_press;     // .state==true, коли STOP_BTN підтверджено НАТИСНУТА (для "логічної" події СТОП)
 static uint8_t       s_debounce_subtick = 0;
 
 // Енкодер
@@ -42,6 +44,8 @@ void input_init(void)
     s_joy_up  = (DebounceBtn_t){0};
     s_joy_down = (DebounceBtn_t){0};
     s_enc_sw  = (DebounceBtn_t){0};
+    s_stop_release = (DebounceBtn_t){0};
+    s_stop_press = (DebounceBtn_t){0};
     s_enc_delta = 0;
     s_stop_flag = false;
     s_enc_sw_pressed_flag = false;
@@ -79,6 +83,31 @@ void input_debounce_tick(void)
     debounce_tick(&s_joy_up,   HAL_GPIO_ReadPin(JOY_UP_GPIO_Port,   JOY_UP_Pin)   == GPIO_PIN_RESET);
     debounce_tick(&s_joy_down, HAL_GPIO_ReadPin(JOY_DOWN_GPIO_Port, JOY_DOWN_Pin) == GPIO_PIN_RESET);
     debounce_tick(&s_enc_sw,   HAL_GPIO_ReadPin(ENC_SW_GPIO_Port,   ENC_SW_Pin)   == GPIO_PIN_RESET);
+
+    // Повторне озброєння EXTI0 (СТОП), замаскованої в HAL_GPIO_EXTI_Callback —
+    // лише коли кнопка стабільно ВІДПУЩЕНА (пін HIGH) DEBOUNCE_MS поспіль.
+    // debounce_tick рахує "натиснуто", тому сюди передаємо інвертовану ознаку
+    // (raw_pressed = пін HIGH) — .state стає true щойно відпускання підтверджене.
+    // Поки мотор рухається і лінія "дзвенить" від наведення — EXTI лишається
+    // замаскованою (мотор вже зупинено при першому фронті, тож це безпечно),
+    // і озброюється щойно шум/дребезг вщухає.
+    debounce_tick(&s_stop_release, HAL_GPIO_ReadPin(STOP_BTN_GPIO_Port, STOP_BTN_Pin) == GPIO_PIN_SET);
+    if (s_stop_release.state) {
+        __HAL_GPIO_EXTI_CLEAR_IT(STOP_BTN_Pin);
+        HAL_NVIC_ClearPendingIRQ(EXTI0_IRQn);
+        HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+    }
+
+    // "Логічна" подія СТОП (яка скидає озброєння бузера дотяжки й перемикає
+    // ERROR/MAIN екран у main.c) — лише коли кнопка підтверджено НАТИСНУТА
+    // DEBOUNCE_MS поспіль. Коротка наводка від мотора (мкс-мс) фізично зупиняє
+    // мотор миттєво (в ISR, main.c), але сюди не доходить — бузер лишається
+    // озброєним, поки оператор дійсно не натисне СТОП.
+    bool stop_press_prev = s_stop_press.state;
+    debounce_tick(&s_stop_press, HAL_GPIO_ReadPin(STOP_BTN_GPIO_Port, STOP_BTN_Pin) == GPIO_PIN_RESET);
+    if (!stop_press_prev && s_stop_press.state) {
+        input_stop_set();
+    }
 
     if (!enc_prev && s_enc_sw.state) {
         s_enc_sw_pressed_flag = true;
@@ -159,7 +188,9 @@ void input_stop_clear(void)
     s_stop_flag = false;
 }
 
-// Встановити прапор СТОП (може викликатися з ISR через motor_emergency_stop)
+// Встановити прапор СТОП. Викликається лише з input_debounce_tick() на
+// підтверджений фронт натискання (див. вище) — вже дедребезговано там,
+// тож тут додаткового lock-out не потрібно.
 void input_stop_set(void)
 {
     s_stop_flag = true;

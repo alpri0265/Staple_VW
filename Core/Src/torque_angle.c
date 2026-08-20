@@ -21,6 +21,8 @@ static float adc_read_absolute_raw(void)
     float v_sensor = v_pin / ANGLE_DIVIDER_RATIO;
     float deg      = (v_sensor / ANGLE_SENSOR_V_MAX) * 360.0f;
 
+    if (ANGLE_INVERT_DIRECTION) deg = 360.0f - deg;
+
     if (deg < 0.0f)   deg = 0.0f;
     if (deg > 360.0f) deg = 360.0f;
     return deg;

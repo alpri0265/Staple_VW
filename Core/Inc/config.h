@@ -41,6 +41,7 @@
 #define ANGLE_ADC_VREF      3.3f    // опорна напруга АЦП (В)
 #define ANGLE_SENSOR_V_MAX  5.0f    // напруга датчика при 360° (В)
 #define ANGLE_DIVIDER_RATIO 0.5f    // дільник 10k/10k: 5V -> 2.5V на вході МК
+#define ANGLE_INVERT_DIRECTION 1U   // інверсія напрямку рахунку кута (1 = рахунок у зворотний бік від сирого сигналу датчика)
 #define ANGLE_DEFAULT_DEG   90.0f   // типовий цільовий кут
 #define ANGLE_STEP_DEG      5.0f    // крок зміни у Settings
 #define ANGLE_MAX_DEG       360.0f  // абсолютний датчик — макс. 1 оберт
